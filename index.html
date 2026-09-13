@@ -279,6 +279,7 @@
           <div class="scorecards" id="homeCards"></div>
           <div class="threshold-row">
             <label>HT over/under line</label><input type="number" step="0.5" id="homeHtLine" value="4.5">
+            <label>2nd-half over/under line</label><input type="number" step="0.5" id="homeSndLine" value="4.5">
             <label>FT over/under line</label><input type="number" step="0.5" id="homeFtLine" value="9.5">
           </div>
           <table class="stat-table" id="homeThresholdTable"></table>
@@ -292,6 +293,7 @@
           <div class="scorecards" id="awayCards"></div>
           <div class="threshold-row">
             <label>HT over/under line</label><input type="number" step="0.5" id="awayHtLine" value="4.5">
+            <label>2nd-half over/under line</label><input type="number" step="0.5" id="awaySndLine" value="4.5">
             <label>FT over/under line</label><input type="number" step="0.5" id="awayFtLine" value="9.5">
           </div>
           <table class="stat-table" id="awayThresholdTable"></table>
@@ -306,6 +308,7 @@
           <div class="scorecards" id="combinedCards"></div>
           <div class="threshold-row">
             <label>HT over/under line</label><input type="number" step="0.5" id="combHtLine" value="9.5">
+            <label>2nd-half over/under line</label><input type="number" step="0.5" id="combSndLine" value="9.5">
             <label>FT over/under line</label><input type="number" step="0.5" id="combFtLine" value="19.5">
           </div>
           <table class="stat-table" id="combinedThresholdTable"></table>
@@ -608,13 +611,15 @@
     const push = total - over - under;
     return { over, under, push, total, overPct: total? Math.round(over/total*1000)/10 : 0 };
   }
-  function renderThresholdTable(tableId, list, htLine, ftLine){
+  function renderThresholdTable(tableId, list, htLine, ftLine, sndLine){
     const table = document.getElementById(tableId);
     if(list.length===0){ table.innerHTML=''; return; }
     const hts = list.map(m=>m.ht);
     const fts = list.map(m=>m.ft);
+    const snds = list.map(m=>m.ft-m.ht);
     const rows = [
       {label:'Half-time · line '+htLine, stats: thresholdStats(hts, htLine)},
+      {label:'2nd-half · line '+sndLine, stats: thresholdStats(snds, sndLine)},
       {label:'Full-time · line '+ftLine, stats: thresholdStats(fts, ftLine)}
     ];
     let html = '<thead><tr><th>Period</th><th>Over</th><th>Under</th><th>Push</th><th>Over %</th></tr></thead><tbody>';
@@ -703,14 +708,16 @@
         renderCards('homeCards', buildScorecards(state.home));
         const hl = parseFloat(document.getElementById('homeHtLine').value)||0;
         const fl = parseFloat(document.getElementById('homeFtLine').value)||0;
-        renderThresholdTable('homeThresholdTable', state.home, hl, fl);
+        const sl = parseFloat(document.getElementById('homeSndLine').value)||0;
+        renderThresholdTable('homeThresholdTable', state.home, hl, fl, sl);
       }
       if(hasAway){
         document.getElementById('awayN').textContent = state.away.length + ' match'+(state.away.length===1?'':'es');
         renderCards('awayCards', buildScorecards(state.away));
         const hl = parseFloat(document.getElementById('awayHtLine').value)||0;
         const fl = parseFloat(document.getElementById('awayFtLine').value)||0;
-        renderThresholdTable('awayThresholdTable', state.away, hl, fl);
+        const sl = parseFloat(document.getElementById('awaySndLine').value)||0;
+        renderThresholdTable('awayThresholdTable', state.away, hl, fl, sl);
       }
 
       const combinedBlock = document.getElementById('combinedBlock');
@@ -727,7 +734,8 @@
         renderCards('combinedCards', buildScorecards(combinedList));
         const hl = parseFloat(document.getElementById('combHtLine').value)||0;
         const fl = parseFloat(document.getElementById('combFtLine').value)||0;
-        renderThresholdTable('combinedThresholdTable', combinedList, hl, fl);
+        const sl = parseFloat(document.getElementById('combSndLine').value)||0;
+        renderThresholdTable('combinedThresholdTable', combinedList, hl, fl, sl);
         renderCombinedLogTable(pairs);
       } else {
         combinedBlock.style.display='none';
@@ -741,7 +749,7 @@
     applyCollapsedClasses();
   }
 
-  ['homeHtLine','homeFtLine','awayHtLine','awayFtLine','combHtLine','combFtLine'].forEach(id=>{
+  ['homeHtLine','homeFtLine','homeSndLine','awayHtLine','awayFtLine','awaySndLine','combHtLine','combFtLine','combSndLine'].forEach(id=>{
     document.addEventListener('input', e=>{
       if(e.target && e.target.id===id) renderAll();
     });
