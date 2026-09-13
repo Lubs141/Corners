@@ -1,0 +1,754 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Corner Watch — Corner Analysis Tool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pitch-deep:#0F3D2E;
+    --pitch-mid:#175A41;
+    --pitch-line:#2E7A57;
+    --chalk:#F4F3EE;
+    --ink:#152119;
+    --paper:#FBFAF6;
+    --flag:#E8A33D;
+    --flag-dim:#c98a2d;
+    --home-blue:#3E7CB1;
+    --away-red:#C0553A;
+    --line-soft:rgba(21,33,25,0.10);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--pitch-deep);
+    background-image:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 80px);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px;}
+
+  /* header */
+  header.top{
+    display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:14px;
+    padding:6px 4px 22px;
+    border-bottom:1px solid rgba(244,243,238,0.18);
+    margin-bottom:26px;
+  }
+  .brand{display:flex; align-items:baseline; gap:12px;}
+  .brand .flag-mark{
+    display:inline-block; width:14px; height:20px; background:var(--flag);
+    clip-path:polygon(0 0, 100% 15%, 0 30%);
+    transform:translateY(2px);
+  }
+  h1{
+    font-family:'Barlow Condensed', sans-serif;
+    font-weight:800;
+    font-size:38px;
+    letter-spacing:0.3px;
+    color:var(--chalk);
+    margin:0;
+    line-height:1;
+  }
+  .tagline{color:rgba(244,243,238,0.62); font-size:14px; margin-top:4px;}
+  .matchcount-pill{
+    font-family:'Barlow Condensed', sans-serif;
+    color:var(--chalk);
+    background:rgba(244,243,238,0.08);
+    border:1px solid rgba(244,243,238,0.2);
+    padding:8px 16px;
+    border-radius:100px;
+    font-size:15px;
+    letter-spacing:0.2px;
+  }
+  .matchcount-pill b{color:var(--flag); font-size:18px; margin-right:4px;}
+  .header-right{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .reset-all-btn{
+    font-family:'Inter', sans-serif; font-size:12.5px; font-weight:600;
+    color:rgba(244,243,238,0.75);
+    background:transparent;
+    border:1px solid rgba(244,243,238,0.28);
+    border-radius:100px;
+    padding:8px 15px;
+    cursor:pointer;
+    transition:background .15s, color .15s, border-color .15s;
+  }
+  .reset-all-btn:hover{
+    background:rgba(192,85,58,0.18);
+    border-color:var(--away-red);
+    color:var(--chalk);
+  }
+
+  /* layout */
+  .layout{display:grid; grid-template-columns:360px 1fr; gap:22px;}
+  @media (max-width:860px){ .layout{grid-template-columns:1fr;} }
+
+  .panel{
+    background:var(--paper);
+    border-radius:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.18);
+  }
+
+  /* entry panel */
+  .entry{padding:26px 28px; max-width:480px; margin:22px auto;}
+  .panel-title{
+    font-family:'Barlow Condensed', sans-serif;
+    font-size:22px; font-weight:700; margin:0 0 4px;
+    color:var(--ink);
+  }
+  .panel-sub{font-size:13px; color:#5b6a60; margin:0 0 18px;}
+
+  .team-toggle{
+    display:flex; border-radius:8px; overflow:hidden; border:1px solid var(--line-soft); margin-bottom:20px;
+  }
+  .team-toggle button{
+    flex:1; padding:11px 6px; border:none; background:var(--paper); cursor:pointer;
+    font-family:'Barlow Condensed', sans-serif; font-size:17px; font-weight:700;
+    color:#7a8880; letter-spacing:0.3px;
+    transition:background .15s, color .15s;
+  }
+  .team-toggle button.active[data-team="home"]{ background:var(--home-blue); color:#fff;}
+  .team-toggle button.active[data-team="away"]{ background:var(--away-red); color:#fff;}
+  .team-toggle button:not(.active):hover{ background:#f0efe8; }
+
+  .field-row{display:flex; gap:10px; margin-bottom:12px;}
+  .field{flex:1;}
+  .field label{
+    display:block; font-size:11.5px; color:#5b6a60; margin-bottom:5px; font-weight:600;
+  }
+  .field input{
+    width:100%; padding:10px 11px; border:1.5px solid var(--line-soft); border-radius:7px;
+    font-size:16px; font-family:'Inter',sans-serif; color:var(--ink); background:#fff;
+  }
+  .field input:focus{outline:none; border-color:var(--flag);}
+
+  .add-btn{
+    width:100%; padding:12px; border:none; border-radius:7px; cursor:pointer;
+    font-family:'Barlow Condensed', sans-serif; font-size:18px; font-weight:700; letter-spacing:0.3px;
+    background:var(--pitch-deep); color:var(--chalk);
+    transition:background .15s;
+  }
+  .add-btn:hover{background:var(--pitch-mid);}
+
+  .hint{font-size:12px; color:#8b978f; margin-top:12px; line-height:1.5;}
+  .save-indicator{font-size:12px; color:#5b8a6b; margin-top:8px; display:flex; align-items:center; gap:6px; min-height:16px; opacity:0; transition:opacity .3s;}
+  .save-indicator.show{opacity:1;}
+  .save-indicator .tick{color:#5b8a6b;}
+
+  /* analysis panel */
+  .analysis{padding:24px 26px 30px;}
+  .section-heading{
+    display:flex; align-items:center; gap:10px; margin:0 0 16px;
+  }
+  .section-heading .dot{width:10px; height:10px; border-radius:50%;}
+  .section-heading h2{
+    font-family:'Barlow Condensed', sans-serif; font-size:24px; font-weight:700; margin:0; color:var(--ink);
+  }
+  .section-heading .n{font-size:13px; color:#8b978f; margin-left:auto;}
+
+  .empty-state{
+    text-align:center; padding:50px 20px; color:#8b978f;
+  }
+  .empty-state .flag-big{font-size:34px; display:block; margin-bottom:10px;}
+  .empty-state h3{font-family:'Barlow Condensed'; font-size:22px; color:var(--ink); margin:0 0 6px;}
+  .empty-state p{font-size:14px; margin:0; max-width:360px; margin:0 auto;}
+
+  .scorecards{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:22px;}
+  @media (max-width:640px){ .scorecards{grid-template-columns:repeat(2,1fr);} }
+  .scorecard{
+    background:var(--pitch-deep); border-radius:8px; padding:14px 12px; text-align:center;
+  }
+  .scorecard .num{
+    font-family:'Barlow Condensed', sans-serif; font-size:32px; font-weight:800; color:var(--flag); line-height:1;
+  }
+  .scorecard .lbl{font-size:11px; color:rgba(244,243,238,0.7); margin-top:5px; font-weight:600;}
+
+  table.stat-table{width:100%; border-collapse:collapse; margin-bottom:22px; font-size:13.5px;}
+  table.stat-table th{
+    text-align:left; font-size:11px; color:#8b978f; font-weight:700; padding:0 10px 8px; border-bottom:2px solid var(--line-soft);
+  }
+  table.stat-table td{padding:9px 10px; border-bottom:1px solid var(--line-soft);}
+  table.stat-table tr:last-child td{border-bottom:none;}
+  table.stat-table td.period{font-weight:700;}
+  .bar-cell{width:140px;}
+  .bar-track{background:#eeece3; border-radius:4px; height:8px; overflow:hidden;}
+  .bar-fill{height:100%; border-radius:4px; background:var(--flag);}
+
+  .threshold-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;}
+  .threshold-row label{font-size:13px; font-weight:600; color:#5b6a60;}
+  .threshold-row input{
+    width:70px; padding:7px 9px; border:1.5px solid var(--line-soft); border-radius:6px; font-size:14px;
+  }
+
+  .divider{height:1px; background:var(--line-soft); margin:28px 0;}
+
+  /* ---- match log section (bottom, full width) ---- */
+  .logsection{margin-top:22px; padding:24px 26px 8px;}
+  .logsection > .panel-title{margin-bottom:2px;}
+  .logsection-header{
+    display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none;
+  }
+  .logsection-header .panel-title{margin:0;}
+  .section-chevron{
+    width:26px; height:26px; display:flex; align-items:center; justify-content:center;
+    color:#8b978f; transition:transform .2s; font-size:14px; flex-shrink:0;
+  }
+  .logsection.collapsed .section-chevron{transform:rotate(-90deg);}
+  .logsection-body{overflow:hidden;}
+  .logsection.collapsed .logsection-body{display:none;}
+  .logsection.collapsed{padding-bottom:24px;}
+  .logblock{margin-bottom:6px;}
+  .logblock-header{
+    display:flex; align-items:center; gap:10px; cursor:pointer;
+    padding:14px 4px; border-top:1px solid var(--line-soft);
+    user-select:none;
+  }
+  .logblock:first-of-type .logblock-header{border-top:none;}
+  .logblock-header .dot{width:10px; height:10px; border-radius:50%; flex-shrink:0;}
+  .logblock-header h3{
+    font-family:'Barlow Condensed', sans-serif; font-size:19px; font-weight:700; margin:0; color:var(--ink);
+  }
+  .logblock-header .count{font-size:12.5px; color:#8b978f;}
+  .logblock-header .spacer{flex:1;}
+  .logblock-header .clear-link{
+    font-size:12px; font-weight:600; color:#b1483a; cursor:pointer; padding:4px 6px;
+  }
+  .logblock-header .chevron{
+    width:22px; height:22px; display:flex; align-items:center; justify-content:center;
+    color:#8b978f; transition:transform .2s;
+    font-size:12px;
+  }
+  .logblock.collapsed .chevron{transform:rotate(-90deg);}
+  .logblock-body{overflow:hidden;}
+  .logblock.collapsed .logblock-body{display:none;}
+
+  .match-log-table-wrap{overflow-x:auto; padding-bottom:14px;}
+  table.matches{width:100%; border-collapse:collapse; font-size:13px; margin-top:4px;}
+  table.matches th{
+    background:var(--pitch-deep); color:var(--chalk); font-size:11px; text-align:center; padding:9px 6px; font-weight:600;
+  }
+  table.matches th:first-child{border-radius:6px 0 0 0;}
+  table.matches th:last-child{border-radius:0 6px 0 0;}
+  table.matches td{text-align:center; padding:8px 6px; border-bottom:1px solid var(--line-soft);}
+  table.matches tr:nth-child(even) td{background:#f5f4ee;}
+  table.matches .rm{
+    background:none; border:none; color:#b1483a; cursor:pointer; font-size:15px; line-height:1;
+  }
+  .log-empty{padding:20px 10px; font-size:13px; color:#9aa59d; text-align:center;}
+  .tag{display:inline-block; padding:2px 8px; border-radius:100px; font-size:11px; font-weight:700;}
+
+  footer.note{
+    max-width:1180px; margin:18px auto 0; padding:0 20px; color:rgba(244,243,238,0.45); font-size:12px; text-align:center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <span class="flag-mark"></span>
+      <div>
+        <h1>Corner Watch</h1>
+        <div class="tagline">Half-time &amp; full-time corner analysis, match by match</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="matchcount-pill"><b id="totalPillCount">0</b> matches logged</div>
+      <button type="button" class="reset-all-btn" id="resetAllBtn">Reset all</button>
+    </div>
+  </header>
+
+  <!-- ANALYSIS PANEL -->
+  <div class="panel analysis" id="analysisPanel">
+      <div class="empty-state" id="emptyState">
+        <span class="flag-big">🚩</span>
+        <h3>Nothing to analyse yet</h3>
+        <p>Add a few matches on the left — half-time and full-time corner counts — and the breakdown for over/under results, team averages and combined totals will build up here.</p>
+      </div>
+
+      <div id="fullAnalysis" style="display:none;">
+
+        <!-- HOME -->
+        <div id="homeBlock">
+          <div class="section-heading"><span class="dot" style="background:var(--home-blue)"></span><h2>Home team</h2><span class="n" id="homeN"></span></div>
+          <div class="scorecards" id="homeCards"></div>
+          <div class="threshold-row">
+            <label>HT over/under line</label><input type="number" step="0.5" id="homeHtLine" value="4.5">
+            <label>FT over/under line</label><input type="number" step="0.5" id="homeFtLine" value="9.5">
+          </div>
+          <table class="stat-table" id="homeThresholdTable"></table>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- AWAY -->
+        <div id="awayBlock">
+          <div class="section-heading"><span class="dot" style="background:var(--away-red)"></span><h2>Away team</h2><span class="n" id="awayN"></span></div>
+          <div class="scorecards" id="awayCards"></div>
+          <div class="threshold-row">
+            <label>HT over/under line</label><input type="number" step="0.5" id="awayHtLine" value="4.5">
+            <label>FT over/under line</label><input type="number" step="0.5" id="awayFtLine" value="9.5">
+          </div>
+          <table class="stat-table" id="awayThresholdTable"></table>
+        </div>
+
+        <div class="divider" id="combinedDivider" style="display:none;"></div>
+
+        <!-- COMBINED -->
+        <div id="combinedBlock" style="display:none;">
+          <div class="section-heading"><span class="dot" style="background:var(--flag)"></span><h2>Match combined</h2><span class="n" id="combinedN"></span></div>
+          <p class="panel-sub" style="margin-top:-8px;">Home fixture 1 is paired with away fixture 1, and so on, to give the combined corner count for each match.</p>
+          <div class="scorecards" id="combinedCards"></div>
+          <div class="threshold-row">
+            <label>HT over/under line</label><input type="number" step="0.5" id="combHtLine" value="9.5">
+            <label>FT over/under line</label><input type="number" step="0.5" id="combFtLine" value="19.5">
+          </div>
+          <table class="stat-table" id="combinedThresholdTable"></table>
+        </div>
+
+      </div>
+    </div>
+
+  <!-- ENTRY PANEL -->
+  <div class="panel entry">
+    <p class="panel-title">Log a match</p>
+    <p class="panel-sub">Choose the team you're recording corners for, then enter that team's corners at half-time and full-time.</p>
+
+    <div class="team-toggle">
+      <button type="button" data-team="home" class="active">Home team</button>
+      <button type="button" data-team="away">Away team</button>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="htInput" id="htLabel">Home HT corners</label>
+        <input type="number" id="htInput" min="0" step="1" inputmode="numeric" enterkeyhint="next" placeholder="e.g. 3">
+      </div>
+      <div class="field">
+        <label for="ftInput" id="ftLabel">Home FT corners</label>
+        <input type="number" id="ftInput" min="0" step="1" inputmode="numeric" enterkeyhint="done" placeholder="e.g. 7">
+      </div>
+    </div>
+
+    <button class="add-btn" id="addBtn">Add match</button>
+    <p class="hint">FT corners is the total for the whole match. The tool works out second-half corners as FT minus HT automatically. The full list of everything you've entered is at the bottom of the page.</p>
+    <div class="save-indicator" id="saveIndicator"><span class="tick">✓</span><span>Saved</span></div>
+  </div>
+
+  <!-- MATCH LOG — full width, collapsible per team, and as a whole -->
+  <div class="panel logsection" id="logsectionPanel">
+    <div class="logsection-header" data-toggle-section="logsection">
+      <p class="panel-title">Match log</p>
+      <span class="chevron section-chevron">▾</span>
+    </div>
+    <div class="logsection-body" id="logsectionBody">
+      <p class="panel-sub">Everything you've entered so far. Click a team name to expand or collapse its list.</p>
+
+      <div class="logblock" id="homeLogBlock">
+        <div class="logblock-header" data-toggle="home">
+          <span class="dot" style="background:var(--home-blue)"></span>
+          <h3>Home matches</h3>
+          <span class="count" id="homeLogCount">(0)</span>
+          <span class="spacer"></span>
+          <span class="clear-link" data-clear="home">Clear</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="logblock-body">
+          <div class="match-log-table-wrap" id="homeLogTableWrap"></div>
+        </div>
+      </div>
+
+      <div class="logblock" id="awayLogBlock">
+        <div class="logblock-header" data-toggle="away">
+          <span class="dot" style="background:var(--away-red)"></span>
+          <h3>Away matches</h3>
+          <span class="count" id="awayLogCount">(0)</span>
+          <span class="spacer"></span>
+          <span class="clear-link" data-clear="away">Clear</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="logblock-body">
+          <div class="match-log-table-wrap" id="awayLogTableWrap"></div>
+        </div>
+      </div>
+
+      <div class="logblock" id="combinedLogBlock" style="display:none;">
+        <div class="logblock-header" data-toggle="combined">
+          <span class="dot" style="background:var(--flag)"></span>
+          <h3>Combined matches</h3>
+          <span class="count" id="combinedLogCount">(0)</span>
+          <span class="spacer"></span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="logblock-body">
+          <div class="match-log-table-wrap" id="combinedLogTableWrap"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="note">Your matches are saved automatically to this artifact and will still be here next time you open it.</footer>
+</div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'corner-watch-matches';
+
+  const state = {
+    activeTeam: 'home',
+    home: [],   // {ht, ft}
+    away: [],
+    collapsed: { home:false, away:false, combined:false, logsection:false }
+  };
+
+  const htInput = document.getElementById('htInput');
+  const ftInput = document.getElementById('ftInput');
+  const htLabel = document.getElementById('htLabel');
+  const ftLabel = document.getElementById('ftLabel');
+  const addBtn = document.getElementById('addBtn');
+  const totalPillCount = document.getElementById('totalPillCount');
+  const saveIndicator = document.getElementById('saveIndicator');
+  const resetAllBtn = document.getElementById('resetAllBtn');
+
+  // ---------- persistence (localStorage, cleared only on reset) ----------
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        const parsed = JSON.parse(raw);
+        if(Array.isArray(parsed.home)) state.home = parsed.home;
+        if(Array.isArray(parsed.away)) state.away = parsed.away;
+        if(parsed.collapsed) state.collapsed = Object.assign(state.collapsed, parsed.collapsed);
+        // also restore active team toggle (optional, but nice)
+        if(parsed.activeTeam === 'home' || parsed.activeTeam === 'away'){
+          state.activeTeam = parsed.activeTeam;
+        }
+      }
+    }catch(e){
+      console.warn('Could not read saved matches, starting fresh.', e);
+    }
+    // apply UI for active team toggle
+    document.querySelectorAll('.team-toggle button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.team === state.activeTeam);
+    });
+    const lbl = state.activeTeam === 'home' ? 'Home' : 'Away';
+    htLabel.textContent = lbl + ' HT corners';
+    ftLabel.textContent = lbl + ' FT corners';
+    renderAll();
+  }
+
+  function saveState(){
+    try{
+      const payload = {
+        home: state.home,
+        away: state.away,
+        collapsed: state.collapsed,
+        activeTeam: state.activeTeam
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      flashSaved();
+    }catch(e){
+      console.error('Could not save match data to localStorage', e);
+    }
+  }
+
+  let saveTimer = null;
+  function flashSaved(){
+    saveIndicator.classList.add('show');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>saveIndicator.classList.remove('show'), 1400);
+  }
+
+  async function resetAll(){
+    if(state.home.length===0 && state.away.length===0) return;
+    const ok = confirm('Reset everything? This clears all logged home and away matches for both teams and can\'t be undone.');
+    if(!ok) return;
+    state.home = [];
+    state.away = [];
+    state.collapsed = { home:false, away:false, combined:false, logsection:false };
+    // clear localStorage
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+    renderAll();
+    // no saveState here so it stays empty until next add
+    // but still show a small confirmation
+    saveIndicator.classList.add('show');
+    saveIndicator.querySelector('span:last-child').textContent = 'Reset';
+    setTimeout(()=>{ saveIndicator.classList.remove('show'); }, 1400);
+  }
+  resetAllBtn.addEventListener('click', resetAll);
+
+  // ---------- team entry toggle ----------
+  document.querySelectorAll('.team-toggle button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.team-toggle button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      state.activeTeam = btn.dataset.team;
+      const label = state.activeTeam === 'home' ? 'Home' : 'Away';
+      htLabel.textContent = label + ' HT corners';
+      ftLabel.textContent = label + ' FT corners';
+      saveState(); // persist active team selection
+    });
+  });
+
+  addBtn.addEventListener('click', ()=> addMatch(true));
+
+  htInput.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      e.preventDefault();
+      ftInput.focus();
+    }
+  });
+  ftInput.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      e.preventDefault();
+      addMatch(false);
+      ftInput.blur();
+      htInput.blur();
+    }
+  });
+
+  function addMatch(refocus){
+    const ht = parseFloat(htInput.value);
+    const ft = parseFloat(ftInput.value);
+    if(isNaN(ht) || isNaN(ft)){ flashInvalid(); return; }
+    if(ft < ht){
+      alert('Full-time corners can\'t be lower than half-time corners for the same match.');
+      return;
+    }
+    state[state.activeTeam].push({ht, ft});
+    htInput.value = '';
+    ftInput.value = '';
+    if(refocus) htInput.focus();
+    renderAll();
+    saveState();
+  }
+
+  function flashInvalid(){
+    [htInput, ftInput].forEach(inp=>{
+      if(inp.value.trim()==='' || isNaN(parseFloat(inp.value))){
+        inp.style.borderColor = '#C0553A';
+        setTimeout(()=>{ inp.style.borderColor=''; }, 700);
+      }
+    });
+  }
+
+  function removeMatch(team, idx){
+    state[team].splice(idx,1);
+    renderAll();
+    saveState();
+  }
+
+  // ---------- collapsible log headers ----------
+  document.querySelectorAll('.logblock-header').forEach(header=>{
+    header.addEventListener('click', (e)=>{
+      if(e.target.closest('.clear-link')) return; // handled separately
+      const key = header.dataset.toggle;
+      state.collapsed[key] = !state.collapsed[key];
+      applyCollapsedClasses();
+      saveState();
+    });
+  });
+  document.querySelectorAll('[data-toggle-section]').forEach(header=>{
+    header.addEventListener('click', ()=>{
+      const key = header.dataset.toggleSection;
+      state.collapsed[key] = !state.collapsed[key];
+      applyCollapsedClasses();
+      saveState();
+    });
+  });
+  document.querySelectorAll('.clear-link').forEach(link=>{
+    link.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const team = link.dataset.clear;
+      if(state[team].length===0) return;
+      if(confirm('Clear all logged ' + team + ' matches?')){
+        state[team] = [];
+        renderAll();
+        saveState();
+      }
+    });
+  });
+  function applyCollapsedClasses(){
+    document.getElementById('homeLogBlock').classList.toggle('collapsed', !!state.collapsed.home);
+    document.getElementById('awayLogBlock').classList.toggle('collapsed', !!state.collapsed.away);
+    document.getElementById('combinedLogBlock').classList.toggle('collapsed', !!state.collapsed.combined);
+    document.getElementById('logsectionPanel').classList.toggle('collapsed', !!state.collapsed.logsection);
+  }
+
+  // ---------- stats helpers ----------
+  function avg(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0; }
+  function fmt(n){ return (Math.round(n*100)/100).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'); }
+
+  function buildScorecards(list){
+    if(list.length===0) return [];
+    const hts = list.map(m=>m.ht);
+    const fts = list.map(m=>m.ft);
+    const seconds = list.map(m=>m.ft-m.ht);
+    return [
+      {num: fmt(avg(hts)), lbl:'Avg HT corners'},
+      {num: fmt(avg(fts)), lbl:'Avg FT corners'},
+      {num: fmt(avg(seconds)), lbl:'Avg 2nd-half corners'},
+      {num: Math.max(...fts), lbl:'Highest FT total'}
+    ];
+  }
+  function renderCards(containerId, cards){
+    document.getElementById(containerId).innerHTML = cards.map(c=>
+      '<div class="scorecard"><div class="num">'+c.num+'</div><div class="lbl">'+c.lbl+'</div></div>'
+    ).join('');
+  }
+  function thresholdStats(values, line){
+    const total = values.length;
+    const over = values.filter(v=>v>line).length;
+    const under = values.filter(v=>v<line).length;
+    const push = total - over - under;
+    return { over, under, push, total, overPct: total? Math.round(over/total*1000)/10 : 0 };
+  }
+  function renderThresholdTable(tableId, list, htLine, ftLine){
+    const table = document.getElementById(tableId);
+    if(list.length===0){ table.innerHTML=''; return; }
+    const hts = list.map(m=>m.ht);
+    const fts = list.map(m=>m.ft);
+    const rows = [
+      {label:'Half-time · line '+htLine, stats: thresholdStats(hts, htLine)},
+      {label:'Full-time · line '+ftLine, stats: thresholdStats(fts, ftLine)}
+    ];
+    let html = '<thead><tr><th>Period</th><th>Over</th><th>Under</th><th>Push</th><th>Over %</th></tr></thead><tbody>';
+    rows.forEach(r=>{
+      html += '<tr>'
+        + '<td class="period">'+r.label+'</td>'
+        + '<td>'+r.stats.over+' / '+r.stats.total+'</td>'
+        + '<td>'+r.stats.under+' / '+r.stats.total+'</td>'
+        + '<td>'+r.stats.push+'</td>'
+        + '<td class="bar-cell"><div style="display:flex;align-items:center;gap:8px;"><div class="bar-track" style="flex:1;"><div class="bar-fill" style="width:'+r.stats.overPct+'%;"></div></div><span>'+r.stats.overPct+'%</span></div></td>'
+        + '</tr>';
+    });
+    html += '</tbody>';
+    table.innerHTML = html;
+  }
+
+  // ---------- match log tables (bottom section) ----------
+  function renderTeamLogTable(team){
+    const list = state[team];
+    const wrap = document.getElementById(team+'LogTableWrap');
+    document.getElementById(team+'LogCount').textContent = '(' + list.length + ')';
+    if(list.length===0){
+      wrap.innerHTML = '<div class="log-empty">No matches logged yet</div>';
+      return;
+    }
+    let html = '<table class="matches"><thead><tr><th>#</th><th>HT</th><th>FT</th><th>2nd half</th><th></th></tr></thead><tbody>';
+    list.forEach((m,i)=>{
+      html += '<tr>'
+        + '<td>'+(i+1)+'</td>'
+        + '<td>'+m.ht+'</td>'
+        + '<td>'+m.ft+'</td>'
+        + '<td>'+(m.ft-m.ht)+'</td>'
+        + '<td><button class="rm" data-team="'+team+'" data-idx="'+i+'" title="Remove">✕</button></td>'
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.rm').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        removeMatch(btn.dataset.team, parseInt(btn.dataset.idx,10));
+      });
+    });
+  }
+
+  function renderCombinedLogTable(pairs){
+    const block = document.getElementById('combinedLogBlock');
+    const wrap = document.getElementById('combinedLogTableWrap');
+    document.getElementById('combinedLogCount').textContent = '(' + pairs.length + ')';
+    if(pairs.length===0){ block.style.display='none'; return; }
+    block.style.display='block';
+    let html = '<table class="matches"><thead><tr><th>#</th><th>Home HT</th><th>Home FT</th><th>Away HT</th><th>Away FT</th><th>Comb. HT</th><th>Comb. FT</th></tr></thead><tbody>';
+    pairs.forEach((p,i)=>{
+      html += '<tr>'
+        + '<td>'+(i+1)+'</td>'
+        + '<td>'+p.home.ht+'</td><td>'+p.home.ft+'</td>'
+        + '<td>'+p.away.ht+'</td><td>'+p.away.ft+'</td>'
+        + '<td><strong>'+(p.home.ht+p.away.ht)+'</strong></td>'
+        + '<td><strong>'+(p.home.ft+p.away.ft)+'</strong></td>'
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  }
+
+  // ---------- master render ----------
+  function renderAll(){
+    totalPillCount.textContent = state.home.length + state.away.length;
+
+    const hasHome = state.home.length>0;
+    const hasAway = state.away.length>0;
+    const emptyState = document.getElementById('emptyState');
+    const fullAnalysis = document.getElementById('fullAnalysis');
+
+    if(!hasHome && !hasAway){
+      emptyState.style.display='block';
+      fullAnalysis.style.display='none';
+    } else {
+      emptyState.style.display='none';
+      fullAnalysis.style.display='block';
+
+      document.getElementById('homeBlock').style.display = hasHome ? 'block':'none';
+      document.getElementById('awayBlock').style.display = hasAway ? 'block':'none';
+
+      if(hasHome){
+        document.getElementById('homeN').textContent = state.home.length + ' match'+(state.home.length===1?'':'es');
+        renderCards('homeCards', buildScorecards(state.home));
+        const hl = parseFloat(document.getElementById('homeHtLine').value)||0;
+        const fl = parseFloat(document.getElementById('homeFtLine').value)||0;
+        renderThresholdTable('homeThresholdTable', state.home, hl, fl);
+      }
+      if(hasAway){
+        document.getElementById('awayN').textContent = state.away.length + ' match'+(state.away.length===1?'':'es');
+        renderCards('awayCards', buildScorecards(state.away));
+        const hl = parseFloat(document.getElementById('awayHtLine').value)||0;
+        const fl = parseFloat(document.getElementById('awayFtLine').value)||0;
+        renderThresholdTable('awayThresholdTable', state.away, hl, fl);
+      }
+
+      const combinedBlock = document.getElementById('combinedBlock');
+      const combinedDivider = document.getElementById('combinedDivider');
+      if(hasHome && hasAway){
+        const n = Math.min(state.home.length, state.away.length);
+        const pairs = [];
+        for(let i=0;i<n;i++){ pairs.push({home: state.home[i], away: state.away[i]}); }
+        const combinedList = pairs.map(p=>({ht:p.home.ht+p.away.ht, ft:p.home.ft+p.away.ft}));
+
+        combinedBlock.style.display='block';
+        combinedDivider.style.display='block';
+        document.getElementById('combinedN').textContent = n + ' paired match'+(n===1?'':'es');
+        renderCards('combinedCards', buildScorecards(combinedList));
+        const hl = parseFloat(document.getElementById('combHtLine').value)||0;
+        const fl = parseFloat(document.getElementById('combFtLine').value)||0;
+        renderThresholdTable('combinedThresholdTable', combinedList, hl, fl);
+        renderCombinedLogTable(pairs);
+      } else {
+        combinedBlock.style.display='none';
+        combinedDivider.style.display='none';
+        renderCombinedLogTable([]);
+      }
+    }
+
+    renderTeamLogTable('home');
+    renderTeamLogTable('away');
+    applyCollapsedClasses();
+  }
+
+  ['homeHtLine','homeFtLine','awayHtLine','awayFtLine','combHtLine','combFtLine'].forEach(id=>{
+    document.addEventListener('input', e=>{
+      if(e.target && e.target.id===id) renderAll();
+    });
+  });
+
+  loadState();
+})();
+</script>
+</body>
+</html>
