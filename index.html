@@ -125,6 +125,17 @@
     font-size:16px; font-family:'Inter',sans-serif; color:var(--ink); background:#fff;
   }
   .field input:focus{outline:none; border-color:var(--flag);}
+  .field input.input-invalid{border-color:var(--away-red); background:#fdf2ef;}
+  .field input.input-invalid:focus{border-color:var(--away-red);}
+
+  .entry-error{
+    display:none; align-items:flex-start; gap:7px;
+    font-size:12.5px; font-weight:600; color:#9c3b28;
+    background:#fbeae6; border:1px solid #f0c7bd; border-radius:7px;
+    padding:9px 11px; margin:-2px 0 14px; line-height:1.4;
+  }
+  .entry-error.show{display:flex;}
+  .entry-error .mark{flex-shrink:0;}
 
   .add-btn{
     width:100%; padding:12px; border:none; border-radius:7px; cursor:pointer;
@@ -338,6 +349,8 @@
       </div>
     </div>
 
+    <div class="entry-error" id="entryError"><span class="mark">⚠</span><span id="entryErrorText"></span></div>
+
     <button class="add-btn" id="addBtn">Add match</button>
     <p class="hint">FT corners is the total for the whole match. The tool works out second-half corners as FT minus HT automatically. The full list of everything you've entered is at the bottom of the page.</p>
     <div class="save-indicator" id="saveIndicator"><span class="tick">✓</span><span>Saved</span></div>
@@ -494,6 +507,7 @@
       const label = state.activeTeam === 'home' ? 'Home' : 'Away';
       htLabel.textContent = label + ' HT corners';
       ftLabel.textContent = label + ' FT corners';
+      clearEntryError();
       saveState(); // persist active team selection
     });
   });
@@ -514,30 +528,81 @@
       htInput.blur();
     }
   });
+  [htInput, ftInput].forEach(inp=>{
+    inp.addEventListener('input', clearEntryError);
+  });
+
+  const entryError = document.getElementById('entryError');
+  const entryErrorText = document.getElementById('entryErrorText');
+
+  function showEntryError(msg, invalidInputs){
+    entryErrorText.textContent = msg;
+    entryError.classList.add('show');
+    [htInput, ftInput].forEach(inp=>inp.classList.remove('input-invalid'));
+    (invalidInputs||[]).forEach(inp=>inp.classList.add('input-invalid'));
+  }
+
+  function clearEntryError(){
+    entryError.classList.remove('show');
+    entryErrorText.textContent = '';
+    htInput.classList.remove('input-invalid');
+    ftInput.classList.remove('input-invalid');
+  }
 
   function addMatch(refocus){
-    const ht = parseFloat(htInput.value);
-    const ft = parseFloat(ftInput.value);
-    if(isNaN(ht) || isNaN(ft)){ flashInvalid(); return; }
-    if(ft < ht){
-      alert('Full-time corners can\'t be lower than half-time corners for the same match.');
+    const htRaw = htInput.value.trim();
+    const ftRaw = ftInput.value.trim();
+
+    // 1. Missing values
+    const htMissing = htRaw==='';
+    const ftMissing = ftRaw==='';
+    if(htMissing || ftMissing){
+      const which = (htMissing && ftMissing) ? 'half-time and full-time corners' : (htMissing ? 'half-time corners' : 'full-time corners');
+      showEntryError('Enter the '+which+' before adding this match.', [htMissing?htInput:null, ftMissing?ftInput:null].filter(Boolean));
       return;
     }
+
+    const ht = Number(htRaw);
+    const ft = Number(ftRaw);
+
+    // 2. Not a valid number at all
+    if(!Number.isFinite(ht) || !Number.isFinite(ft)){
+      showEntryError('Corners must be valid numbers.', [!Number.isFinite(ht)?htInput:null, !Number.isFinite(ft)?ftInput:null].filter(Boolean));
+      return;
+    }
+
+    // 3. Negative values
+    if(ht < 0 || ft < 0){
+      showEntryError('Corners can\'t be negative.', [ht<0?htInput:null, ft<0?ftInput:null].filter(Boolean));
+      return;
+    }
+
+    // 4. Decimals — corners are whole numbers
+    if(!Number.isInteger(ht) || !Number.isInteger(ft)){
+      showEntryError('Corners must be whole numbers — no decimals.', [!Number.isInteger(ht)?htInput:null, !Number.isInteger(ft)?ftInput:null].filter(Boolean));
+      return;
+    }
+
+    // 5. Unreasonably high values (likely a typo)
+    const MAX_PLAUSIBLE = 30;
+    if(ht > MAX_PLAUSIBLE || ft > MAX_PLAUSIBLE){
+      showEntryError('That looks too high for a single match — double-check the value.', [ht>MAX_PLAUSIBLE?htInput:null, ft>MAX_PLAUSIBLE?ftInput:null].filter(Boolean));
+      return;
+    }
+
+    // 6. Logical consistency — FT total can never be lower than HT total
+    if(ft < ht){
+      showEntryError('Full-time corners can\'t be lower than half-time corners for the same match.', [htInput, ftInput]);
+      return;
+    }
+
+    clearEntryError();
     state[state.activeTeam].push({ht, ft});
     htInput.value = '';
     ftInput.value = '';
     if(refocus) htInput.focus();
     renderAll();
     saveState();
-  }
-
-  function flashInvalid(){
-    [htInput, ftInput].forEach(inp=>{
-      if(inp.value.trim()==='' || isNaN(parseFloat(inp.value))){
-        inp.style.borderColor = '#C0553A';
-        setTimeout(()=>{ inp.style.borderColor=''; }, 700);
-      }
-    });
   }
 
   function removeMatch(team, idx){
@@ -719,29 +784,29 @@
         const sl = parseFloat(document.getElementById('awaySndLine').value)||0;
         renderThresholdTable('awayThresholdTable', state.away, hl, fl, sl);
       }
+    }
 
-      const combinedBlock = document.getElementById('combinedBlock');
-      const combinedDivider = document.getElementById('combinedDivider');
-      if(hasHome && hasAway){
-        const n = Math.min(state.home.length, state.away.length);
-        const pairs = [];
-        for(let i=0;i<n;i++){ pairs.push({home: state.home[i], away: state.away[i]}); }
-        const combinedList = pairs.map(p=>({ht:p.home.ht+p.away.ht, ft:p.home.ft+p.away.ft}));
+    const combinedBlock = document.getElementById('combinedBlock');
+    const combinedDivider = document.getElementById('combinedDivider');
+    if(hasHome && hasAway){
+      const n = Math.min(state.home.length, state.away.length);
+      const pairs = [];
+      for(let i=0;i<n;i++){ pairs.push({home: state.home[i], away: state.away[i]}); }
+      const combinedList = pairs.map(p=>({ht:p.home.ht+p.away.ht, ft:p.home.ft+p.away.ft}));
 
-        combinedBlock.style.display='block';
-        combinedDivider.style.display='block';
-        document.getElementById('combinedN').textContent = n + ' paired match'+(n===1?'':'es');
-        renderCards('combinedCards', buildScorecards(combinedList));
-        const hl = parseFloat(document.getElementById('combHtLine').value)||0;
-        const fl = parseFloat(document.getElementById('combFtLine').value)||0;
-        const sl = parseFloat(document.getElementById('combSndLine').value)||0;
-        renderThresholdTable('combinedThresholdTable', combinedList, hl, fl, sl);
-        renderCombinedLogTable(pairs);
-      } else {
-        combinedBlock.style.display='none';
-        combinedDivider.style.display='none';
-        renderCombinedLogTable([]);
-      }
+      combinedBlock.style.display='block';
+      combinedDivider.style.display='block';
+      document.getElementById('combinedN').textContent = n + ' paired match'+(n===1?'':'es');
+      renderCards('combinedCards', buildScorecards(combinedList));
+      const hl = parseFloat(document.getElementById('combHtLine').value)||0;
+      const fl = parseFloat(document.getElementById('combFtLine').value)||0;
+      const sl = parseFloat(document.getElementById('combSndLine').value)||0;
+      renderThresholdTable('combinedThresholdTable', combinedList, hl, fl, sl);
+      renderCombinedLogTable(pairs);
+    } else {
+      combinedBlock.style.display='none';
+      combinedDivider.style.display='none';
+      renderCombinedLogTable([]);
     }
 
     renderTeamLogTable('home');
