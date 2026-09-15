@@ -189,6 +189,23 @@
   .bar-track{background:#eeece3; border-radius:4px; height:8px; overflow:hidden;}
   .bar-fill{height:100%; border-radius:4px; background:var(--flag);}
 
+  .half-insight{
+    background:#eef6f1; border:1px solid #d8ead9; border-radius:10px;
+    padding:14px 16px; margin-bottom:18px; font-size:13.5px; color:#2c4a37; line-height:1.55;
+  }
+  .half-insight .hi-header{display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none;}
+  .half-insight .hi-title{font-weight:800; color:#1f3d2c; font-size:13px; text-transform:uppercase; letter-spacing:.04em;}
+  .half-insight .hi-chevron{font-size:12px; color:#5b8a6d; transition:transform .15s ease; flex-shrink:0;}
+  .half-insight.collapsed .hi-chevron{transform:rotate(-90deg);}
+  .half-insight.collapsed .hi-body{display:none;}
+  .half-insight .hi-body{margin-top:10px;}
+  .half-insight b{color:#1f3d2c;}
+  .half-insight .hi-bars{display:flex; gap:14px; margin-top:12px;}
+  .half-insight .hi-bar{flex:1;}
+  .half-insight .hi-bar-label{font-size:11.5px; font-weight:700; color:#5b6a60; margin-bottom:4px; display:flex; justify-content:space-between;}
+  .half-insight .hi-track{height:8px; border-radius:5px; background:#dfe8e0; overflow:hidden;}
+  .half-insight .hi-fill{height:100%; border-radius:5px;}
+  .odds-line{font-size:11px; font-weight:800; margin-bottom:3px;}
   .threshold-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;}
   .threshold-row label{font-size:13px; font-weight:600; color:#5b6a60;}
   .threshold-row input{
@@ -288,6 +305,13 @@
         <div id="homeBlock">
           <div class="section-heading"><span class="dot" style="background:var(--home-blue)"></span><h2>Home team</h2><span class="n" id="homeN"></span></div>
           <div class="scorecards" id="homeCards"></div>
+          <div class="half-insight" id="homeHalfInsight">
+            <div class="hi-header" data-toggle-insight="home">
+              <span class="hi-title">Half-by-half breakdown</span>
+              <span class="hi-chevron">▾</span>
+            </div>
+            <div class="hi-body" id="homeHalfInsightBody"></div>
+          </div>
           <div class="threshold-row">
             <label>HT over/under line</label><input type="number" step="0.5" id="homeHtLine" value="4.5">
             <label>2nd-half over/under line</label><input type="number" step="0.5" id="homeSndLine" value="4.5">
@@ -302,6 +326,13 @@
         <div id="awayBlock">
           <div class="section-heading"><span class="dot" style="background:var(--away-red)"></span><h2>Away team</h2><span class="n" id="awayN"></span></div>
           <div class="scorecards" id="awayCards"></div>
+          <div class="half-insight" id="awayHalfInsight">
+            <div class="hi-header" data-toggle-insight="away">
+              <span class="hi-title">Half-by-half breakdown</span>
+              <span class="hi-chevron">▾</span>
+            </div>
+            <div class="hi-body" id="awayHalfInsightBody"></div>
+          </div>
           <div class="threshold-row">
             <label>HT over/under line</label><input type="number" step="0.5" id="awayHtLine" value="4.5">
             <label>2nd-half over/under line</label><input type="number" step="0.5" id="awaySndLine" value="4.5">
@@ -317,6 +348,13 @@
           <div class="section-heading"><span class="dot" style="background:var(--flag)"></span><h2>Match combined</h2><span class="n" id="combinedN"></span></div>
           <p class="panel-sub" style="margin-top:-8px;">Home fixture 1 is paired with away fixture 1, and so on, to give the combined corner count for each match.</p>
           <div class="scorecards" id="combinedCards"></div>
+          <div class="half-insight" id="combinedHalfInsight">
+            <div class="hi-header" data-toggle-insight="combined">
+              <span class="hi-title">Half-by-half breakdown</span>
+              <span class="hi-chevron">▾</span>
+            </div>
+            <div class="hi-body" id="combinedHalfInsightBody"></div>
+          </div>
           <div class="threshold-row">
             <label>HT over/under line</label><input type="number" step="0.5" id="combHtLine" value="9.5">
             <label>2nd-half over/under line</label><input type="number" step="0.5" id="combSndLine" value="9.5">
@@ -419,7 +457,7 @@
     activeTeam: 'home',
     home: [],   // {ht, ft}
     away: [],
-    collapsed: { home:false, away:false, combined:false, logsection:false }
+    collapsed: { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false }
   };
 
   const htInput = document.getElementById('htInput');
@@ -486,7 +524,7 @@
     if(!ok) return;
     state.home = [];
     state.away = [];
-    state.collapsed = { home:false, away:false, combined:false, logsection:false };
+    state.collapsed = { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false };
     // clear localStorage
     try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
     renderAll();
@@ -629,6 +667,14 @@
       saveState();
     });
   });
+  document.querySelectorAll('.hi-header').forEach(header=>{
+    header.addEventListener('click', ()=>{
+      const key = header.dataset.toggleInsight + 'Insight';
+      state.collapsed[key] = !state.collapsed[key];
+      applyCollapsedClasses();
+      saveState();
+    });
+  });
   document.querySelectorAll('.clear-link').forEach(link=>{
     link.addEventListener('click', (e)=>{
       e.stopPropagation();
@@ -646,6 +692,9 @@
     document.getElementById('awayLogBlock').classList.toggle('collapsed', !!state.collapsed.away);
     document.getElementById('combinedLogBlock').classList.toggle('collapsed', !!state.collapsed.combined);
     document.getElementById('logsectionPanel').classList.toggle('collapsed', !!state.collapsed.logsection);
+    document.getElementById('homeHalfInsight').classList.toggle('collapsed', !!state.collapsed.homeInsight);
+    document.getElementById('awayHalfInsight').classList.toggle('collapsed', !!state.collapsed.awayInsight);
+    document.getElementById('combinedHalfInsight').classList.toggle('collapsed', !!state.collapsed.combinedInsight);
   }
 
   // ---------- stats helpers ----------
@@ -676,6 +725,24 @@
     const push = total - over - under;
     return { over, under, push, total, overPct: total? Math.round(over/total*1000)/10 : 0 };
   }
+  // Decimal "true odds" implied by the observed frequency of an outcome.
+  // Pushes are excluded from the base (a push voids the bet rather than winning/losing it),
+  // so odds reflect the fair price between the over and under outcomes only.
+  function trueOdds(count, base){
+    if(base<=0 || count<=0) return null; // no occurrences yet — odds undefined
+    return base/count;
+  }
+  function fmtOdds(o){
+    return o===null ? '—' : o.toFixed(2);
+  }
+  // Colour-code true odds by implied probability, so a glance shows which
+  // side is the favourite (green), a toss-up (amber), or a longshot (red).
+  function oddsColor(o){
+    if(o===null) return '#8a9a8f';
+    if(o<=1.5) return '#2f8f5b';
+    if(o<=2.2) return '#c98a2d';
+    return '#c0553a';
+  }
   function renderThresholdTable(tableId, list, htLine, ftLine, sndLine){
     const table = document.getElementById(tableId);
     if(list.length===0){ table.innerHTML=''; return; }
@@ -689,16 +756,66 @@
     ];
     let html = '<thead><tr><th>Period</th><th>Over</th><th>Under</th><th>Push</th><th>Over %</th></tr></thead><tbody>';
     rows.forEach(r=>{
+      const decidable = r.stats.over + r.stats.under; // excludes pushes
+      const overOddsVal = trueOdds(r.stats.over, decidable);
+      const underOddsVal = trueOdds(r.stats.under, decidable);
       html += '<tr>'
         + '<td class="period">'+r.label+'</td>'
-        + '<td>'+r.stats.over+' / '+r.stats.total+'</td>'
-        + '<td>'+r.stats.under+' / '+r.stats.total+'</td>'
+        + '<td><div class="odds-line" style="color:'+oddsColor(overOddsVal)+'">True odds '+fmtOdds(overOddsVal)+'</div>'+r.stats.over+' / '+r.stats.total+'</td>'
+        + '<td><div class="odds-line" style="color:'+oddsColor(underOddsVal)+'">True odds '+fmtOdds(underOddsVal)+'</div>'+r.stats.under+' / '+r.stats.total+'</td>'
         + '<td>'+r.stats.push+'</td>'
         + '<td class="bar-cell"><div style="display:flex;align-items:center;gap:8px;"><div class="bar-track" style="flex:1;"><div class="bar-fill" style="width:'+r.stats.overPct+'%;"></div></div><span>'+r.stats.overPct+'%</span></div></td>'
         + '</tr>';
     });
     html += '</tbody>';
     table.innerHTML = html;
+  }
+
+  // ---------- half-by-half comparison (which half produced more corners) ----------
+  function buildHalfInsight(list){
+    const n = list.length;
+    if(n===0) return null;
+    const hts = list.map(m=>m.ht);
+    const snds = list.map(m=>m.ft-m.ht);
+    const avgHt = hts.reduce((a,b)=>a+b,0)/n;
+    const avgSnd = snds.reduce((a,b)=>a+b,0)/n;
+    let htWins=0, sndWins=0, ties=0;
+    for(let i=0;i<n;i++){
+      if(hts[i] > snds[i]) htWins++;
+      else if(snds[i] > hts[i]) sndWins++;
+      else ties++;
+    }
+    return { n, avgHt, avgSnd, htWins, sndWins, ties };
+  }
+  function renderHalfInsight(containerId, list){
+    const container = document.getElementById(containerId);
+    const body = document.getElementById(containerId+'Body');
+    const d = buildHalfInsight(list);
+    if(!d){ container.style.display='none'; body.innerHTML=''; return; }
+    container.style.display='block';
+    const fmt = v => (Math.round(v*100)/100).toString();
+    const pct = c => d.n ? Math.round(c/d.n*1000)/10 : 0;
+
+    let leadLabel, leadNote;
+    if(d.avgHt > d.avgSnd){
+      leadLabel = 'First half';
+      leadNote = 'produces more corners on average — '+fmt(d.avgHt)+' vs '+fmt(d.avgSnd)+' per match, and was the higher-scoring half in '+d.htWins+' of '+d.n+' matches ('+pct(d.htWins)+'%).';
+    } else if(d.avgSnd > d.avgHt){
+      leadLabel = 'Second half';
+      leadNote = 'produces more corners on average — '+fmt(d.avgSnd)+' vs '+fmt(d.avgHt)+' per match, and was the higher-scoring half in '+d.sndWins+' of '+d.n+' matches ('+pct(d.sndWins)+'%).';
+    } else {
+      leadLabel = 'Both halves';
+      leadNote = 'produce corners at the same average rate ('+fmt(d.avgHt)+' each).';
+    }
+    const maxAvg = Math.max(d.avgHt, d.avgSnd, 0.0001);
+
+    body.innerHTML =
+      '<div><b>'+leadLabel+'</b> '+leadNote+'</div>'
+      + '<div>Split across matches: 1st-half higher in '+d.htWins+' ('+pct(d.htWins)+'%), 2nd-half higher in '+d.sndWins+' ('+pct(d.sndWins)+'%)'+(d.ties?', tied in '+d.ties+' ('+pct(d.ties)+'%)':'')+'.</div>'
+      + '<div class="hi-bars">'
+        + '<div class="hi-bar"><div class="hi-bar-label"><span>1st half</span><span>'+fmt(d.avgHt)+'</span></div><div class="hi-track"><div class="hi-fill" style="width:'+(d.avgHt/maxAvg*100)+'%;background:var(--home-blue);"></div></div></div>'
+        + '<div class="hi-bar"><div class="hi-bar-label"><span>2nd half</span><span>'+fmt(d.avgSnd)+'</span></div><div class="hi-track"><div class="hi-fill" style="width:'+(d.avgSnd/maxAvg*100)+'%;background:var(--flag);"></div></div></div>'
+      + '</div>';
   }
 
   // ---------- match log tables (bottom section) ----------
@@ -771,6 +888,7 @@
       if(hasHome){
         document.getElementById('homeN').textContent = state.home.length + ' match'+(state.home.length===1?'':'es');
         renderCards('homeCards', buildScorecards(state.home));
+        renderHalfInsight('homeHalfInsight', state.home);
         const hl = parseFloat(document.getElementById('homeHtLine').value)||0;
         const fl = parseFloat(document.getElementById('homeFtLine').value)||0;
         const sl = parseFloat(document.getElementById('homeSndLine').value)||0;
@@ -779,6 +897,7 @@
       if(hasAway){
         document.getElementById('awayN').textContent = state.away.length + ' match'+(state.away.length===1?'':'es');
         renderCards('awayCards', buildScorecards(state.away));
+        renderHalfInsight('awayHalfInsight', state.away);
         const hl = parseFloat(document.getElementById('awayHtLine').value)||0;
         const fl = parseFloat(document.getElementById('awayFtLine').value)||0;
         const sl = parseFloat(document.getElementById('awaySndLine').value)||0;
@@ -798,6 +917,7 @@
       combinedDivider.style.display='block';
       document.getElementById('combinedN').textContent = n + ' paired match'+(n===1?'':'es');
       renderCards('combinedCards', buildScorecards(combinedList));
+      renderHalfInsight('combinedHalfInsight', combinedList);
       const hl = parseFloat(document.getElementById('combHtLine').value)||0;
       const fl = parseFloat(document.getElementById('combFtLine').value)||0;
       const sl = parseFloat(document.getElementById('combSndLine').value)||0;
