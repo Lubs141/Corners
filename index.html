@@ -67,6 +67,20 @@
   }
   .matchcount-pill b{color:var(--flag); font-size:18px; margin-right:4px;}
   .header-right{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .select-wrap{position:relative; display:inline-block;}
+  .select-wrap select{
+    font-family:'Inter', sans-serif; font-size:13.5px; font-weight:700;
+    color:var(--chalk); background:rgba(244,243,238,0.08);
+    border:1px solid rgba(244,243,238,0.28); border-radius:100px;
+    padding:8px 30px 8px 16px; cursor:pointer;
+    appearance:none; -webkit-appearance:none; -moz-appearance:none;
+  }
+  .select-wrap select:focus{outline:none; border-color:var(--flag);}
+  .select-wrap select option{color:var(--ink); background:var(--paper);}
+  .select-wrap .select-arrow{
+    position:absolute; right:13px; top:50%; transform:translateY(-50%);
+    pointer-events:none; font-size:11px; color:rgba(244,243,238,0.7);
+  }
   .reset-all-btn{
     font-family:'Inter', sans-serif; font-size:12.5px; font-weight:600;
     color:rgba(244,243,238,0.75);
@@ -255,6 +269,8 @@
   .logblock.collapsed .logblock-body{display:none;}
 
   .match-log-table-wrap{overflow-x:auto; padding-bottom:14px;}
+  #combinedLogTableWrap{max-height:420px; overflow-y:auto;}
+  #combinedLogTableWrap table.matches thead th{position:sticky; top:0; background:var(--pitch-deep); z-index:1;}
   table.matches{width:100%; border-collapse:collapse; font-size:13px; margin-top:4px;}
   table.matches th{
     background:var(--pitch-deep); color:var(--chalk); font-size:11px; text-align:center; padding:9px 6px; font-weight:600;
@@ -269,6 +285,14 @@
   .log-empty{padding:20px 10px; font-size:13px; color:#9aa59d; text-align:center;}
   .tag{display:inline-block; padding:2px 8px; border-radius:100px; font-size:11px; font-weight:700;}
 
+  .sample-warning{
+    display:none; align-items:flex-start; gap:8px;
+    background:#fdf5e6; border:1px solid #f0dfb0; border-radius:8px;
+    padding:10px 12px; margin:0 0 14px; font-size:12.5px; color:#7a5c1e; line-height:1.5;
+  }
+  .sample-warning .mark{flex-shrink:0;}
+  .method-note{font-size:12px; color:#8b978f; font-style:italic; margin:-6px 0 16px; line-height:1.5;}
+
   footer.note{
     max-width:1180px; margin:18px auto 0; padding:0 20px; color:rgba(244,243,238,0.45); font-size:12px; text-align:center;
   }
@@ -281,11 +305,18 @@
     <div class="brand">
       <span class="flag-mark"></span>
       <div>
-        <h1>Corner Watch</h1>
-        <div class="tagline">Half-time &amp; full-time corner analysis, match by match</div>
+        <h1 id="brandTitle">Corner Watch</h1>
+        <div class="tagline" id="brandTagline">Half-time &amp; full-time corner analysis, match by match</div>
       </div>
     </div>
     <div class="header-right">
+      <div class="select-wrap">
+        <select id="statTypeSelect" aria-label="Track corners or goals">
+          <option value="corners">Corners</option>
+          <option value="goals">Goals</option>
+        </select>
+        <span class="select-arrow">▾</span>
+      </div>
       <div class="matchcount-pill"><b id="totalPillCount">0</b> matches logged</div>
       <button type="button" class="reset-all-btn" id="resetAllBtn">Reset all</button>
     </div>
@@ -296,7 +327,7 @@
       <div class="empty-state" id="emptyState">
         <span class="flag-big">🚩</span>
         <h3>Nothing to analyse yet</h3>
-        <p>Add a few matches on the left — half-time and full-time corner counts — and the breakdown for over/under results, team averages and combined totals will build up here.</p>
+        <p id="emptyStateText">Add a few matches on the left — half-time and full-time corner counts — and the breakdown for over/under results, team averages and combined totals will build up here.</p>
       </div>
 
       <div id="fullAnalysis" style="display:none;">
@@ -304,6 +335,7 @@
         <!-- HOME -->
         <div id="homeBlock">
           <div class="section-heading"><span class="dot" style="background:var(--home-blue)"></span><h2>Home team</h2><span class="n" id="homeN"></span></div>
+          <div class="sample-warning" id="homeSampleWarning"></div>
           <div class="scorecards" id="homeCards"></div>
           <div class="half-insight" id="homeHalfInsight">
             <div class="hi-header" data-toggle-insight="home">
@@ -325,6 +357,7 @@
         <!-- AWAY -->
         <div id="awayBlock">
           <div class="section-heading"><span class="dot" style="background:var(--away-red)"></span><h2>Away team</h2><span class="n" id="awayN"></span></div>
+          <div class="sample-warning" id="awaySampleWarning"></div>
           <div class="scorecards" id="awayCards"></div>
           <div class="half-insight" id="awayHalfInsight">
             <div class="hi-header" data-toggle-insight="away">
@@ -346,7 +379,9 @@
         <!-- COMBINED -->
         <div id="combinedBlock" style="display:none;">
           <div class="section-heading"><span class="dot" style="background:var(--flag)"></span><h2>Match combined</h2><span class="n" id="combinedN"></span></div>
-          <p class="panel-sub" style="margin-top:-8px;">Home fixture 1 is paired with away fixture 1, and so on, to give the combined corner count for each match.</p>
+          <p class="panel-sub" id="combinedSub" style="margin-top:-8px;">Every home fixture is combined with every away fixture — Home's home-ground record against its various opponents, matched against Away's away-ground record against its various opponents — to model all the ways this specific matchup could play out.</p>
+          <p class="method-note">This treats Home's home form and Away's away form as statistically independent of each other — the same simplifying assumption standard scoreline models use. It's a reasonable starting point for a projection, not a guarantee of how the match will actually unfold.</p>
+          <div class="sample-warning" id="combinedSampleWarning"></div>
           <div class="scorecards" id="combinedCards"></div>
           <div class="half-insight" id="combinedHalfInsight">
             <div class="hi-header" data-toggle-insight="combined">
@@ -369,7 +404,7 @@
   <!-- ENTRY PANEL -->
   <div class="panel entry">
     <p class="panel-title">Log a match</p>
-    <p class="panel-sub">Choose the team you're recording corners for, then enter that team's corners at half-time and full-time.</p>
+    <p class="panel-sub" id="entryPanelSub">Choose the team you're recording corners for, then enter that team's corners at half-time and full-time.</p>
 
     <div class="team-toggle">
       <button type="button" data-team="home" class="active">Home team</button>
@@ -390,7 +425,7 @@
     <div class="entry-error" id="entryError"><span class="mark">⚠</span><span id="entryErrorText"></span></div>
 
     <button class="add-btn" id="addBtn">Add match</button>
-    <p class="hint">FT corners is the total for the whole match. The tool works out second-half corners as FT minus HT automatically. The full list of everything you've entered is at the bottom of the page.</p>
+    <p class="hint" id="entryHint">FT corners is the total for the whole match. The tool works out second-half corners as FT minus HT automatically. The full list of everything you've entered is at the bottom of the page.</p>
     <div class="save-indicator" id="saveIndicator"><span class="tick">✓</span><span>Saved</span></div>
   </div>
 
@@ -453,12 +488,32 @@
 (function(){
   const STORAGE_KEY = 'corner-watch-matches';
 
+  const DEFAULT_LINES = {
+    corners: { homeHt:4.5, homeSnd:4.5, homeFt:9.5, awayHt:4.5, awaySnd:4.5, awayFt:9.5, combHt:9.5, combSnd:9.5, combFt:19.5 },
+    goals:   { homeHt:0.5, homeSnd:0.5, homeFt:1.5, awayHt:0.5, awaySnd:0.5, awayFt:1.5, combHt:1.5, combSnd:1.5, combFt:2.5 }
+  };
+
+  function freshTypeState(type){
+    return { activeTeam:'home', home:[], away:[], lines: Object.assign({}, DEFAULT_LINES[type]) };
+  }
+
   const state = {
-    activeTeam: 'home',
-    home: [],   // {ht, ft}
-    away: [],
+    statType: 'corners', // 'corners' | 'goals'
+    data: { corners: freshTypeState('corners'), goals: freshTypeState('goals') },
     collapsed: { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false }
   };
+
+  function cur(){ return state.data[state.statType]; }
+  function unitPlural(){ return state.statType==='goals' ? 'goals' : 'corners'; }
+  function unitPluralCap(){ return state.statType==='goals' ? 'Goals' : 'Corners'; }
+  function unitSingular(){ return state.statType==='goals' ? 'goal' : 'corner'; }
+  function maxPlausible(){ return state.statType==='goals' ? 15 : 30; }
+
+  const LINE_FIELDS = [
+    {id:'homeHtLine', key:'homeHt'}, {id:'homeSndLine', key:'homeSnd'}, {id:'homeFtLine', key:'homeFt'},
+    {id:'awayHtLine', key:'awayHt'}, {id:'awaySndLine', key:'awaySnd'}, {id:'awayFtLine', key:'awayFt'},
+    {id:'combHtLine', key:'combHt'}, {id:'combSndLine', key:'combSnd'}, {id:'combFtLine', key:'combFt'}
+  ];
 
   const htInput = document.getElementById('htInput');
   const ftInput = document.getElementById('ftInput');
@@ -469,41 +524,51 @@
   const saveIndicator = document.getElementById('saveIndicator');
   const resetAllBtn = document.getElementById('resetAllBtn');
 
+  const statTypeSelect = document.getElementById('statTypeSelect');
+  const brandTitle = document.getElementById('brandTitle');
+  const brandTagline = document.getElementById('brandTagline');
+  const emptyStateText = document.getElementById('emptyStateText');
+  const combinedSub = document.getElementById('combinedSub');
+  const entryPanelSub = document.getElementById('entryPanelSub');
+  const entryHint = document.getElementById('entryHint');
+
   // ---------- persistence (localStorage, cleared only on reset) ----------
   function loadState(){
     try{
       const raw = localStorage.getItem(STORAGE_KEY);
       if(raw){
         const parsed = JSON.parse(raw);
-        if(Array.isArray(parsed.home)) state.home = parsed.home;
-        if(Array.isArray(parsed.away)) state.away = parsed.away;
-        if(parsed.collapsed) state.collapsed = Object.assign(state.collapsed, parsed.collapsed);
-        // also restore active team toggle (optional, but nice)
-        if(parsed.activeTeam === 'home' || parsed.activeTeam === 'away'){
-          state.activeTeam = parsed.activeTeam;
+        if(parsed.data && (parsed.data.corners || parsed.data.goals)){
+          // current dual-mode format
+          if(parsed.statType==='goals' || parsed.statType==='corners') state.statType = parsed.statType;
+          ['corners','goals'].forEach(t=>{
+            const src = parsed.data[t];
+            if(src){
+              if(Array.isArray(src.home)) state.data[t].home = src.home;
+              if(Array.isArray(src.away)) state.data[t].away = src.away;
+              if(src.activeTeam==='home' || src.activeTeam==='away') state.data[t].activeTeam = src.activeTeam;
+              if(src.lines) state.data[t].lines = Object.assign({}, state.data[t].lines, src.lines);
+            }
+          });
+        } else if(Array.isArray(parsed.home) || Array.isArray(parsed.away)){
+          // legacy single-mode format — migrate into corners
+          if(Array.isArray(parsed.home)) state.data.corners.home = parsed.home;
+          if(Array.isArray(parsed.away)) state.data.corners.away = parsed.away;
+          if(parsed.activeTeam==='home' || parsed.activeTeam==='away') state.data.corners.activeTeam = parsed.activeTeam;
+          state.statType = 'corners';
         }
+        if(parsed.collapsed) state.collapsed = Object.assign(state.collapsed, parsed.collapsed);
       }
     }catch(e){
       console.warn('Could not read saved matches, starting fresh.', e);
     }
-    // apply UI for active team toggle
-    document.querySelectorAll('.team-toggle button').forEach(b=>{
-      b.classList.toggle('active', b.dataset.team === state.activeTeam);
-    });
-    const lbl = state.activeTeam === 'home' ? 'Home' : 'Away';
-    htLabel.textContent = lbl + ' HT corners';
-    ftLabel.textContent = lbl + ' FT corners';
+    applyStatType();
     renderAll();
   }
 
   function saveState(){
     try{
-      const payload = {
-        home: state.home,
-        away: state.away,
-        collapsed: state.collapsed,
-        activeTeam: state.activeTeam
-      };
+      const payload = { statType: state.statType, data: state.data, collapsed: state.collapsed };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       flashSaved();
     }catch(e){
@@ -518,33 +583,67 @@
     saveTimer = setTimeout(()=>saveIndicator.classList.remove('show'), 1400);
   }
 
+  // ---------- switching between Corners / Goals ----------
+  function applyStatType(){
+    statTypeSelect.value = state.statType;
+    const c = cur();
+
+    brandTitle.textContent = state.statType==='goals' ? 'Goal Watch' : 'Corner Watch';
+    brandTagline.textContent = 'Half-time & full-time '+unitPlural()+' analysis, match by match';
+    document.title = brandTitle.textContent + ' — ' + unitPluralCap() + ' Analysis Tool';
+
+    emptyStateText.textContent = 'Add a few matches on the left — half-time and full-time '+unitPlural()+' counts — and the breakdown for over/under results, team averages and combined totals will build up here.';
+    combinedSub.textContent = 'Every home fixture is combined with every away fixture — Home\'s home-ground '+unitPlural()+' against its various opponents, matched against Away\'s away-ground '+unitPlural()+' against its various opponents — to model all the ways this specific matchup could play out.';
+    entryPanelSub.textContent = 'Choose the team you\'re recording '+unitPlural()+' for, then enter that team\'s '+unitPlural()+' at half-time and full-time.';
+    entryHint.textContent = 'FT '+unitPlural()+' is the total for the whole match. The tool works out second-half '+unitPlural()+' as FT minus HT automatically. The full list of everything you\'ve entered is at the bottom of the page.';
+
+    htInput.placeholder = state.statType==='goals' ? 'e.g. 1' : 'e.g. 3';
+    ftInput.placeholder = state.statType==='goals' ? 'e.g. 3' : 'e.g. 7';
+
+    document.querySelectorAll('.team-toggle button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.team === c.activeTeam);
+    });
+    const lbl = c.activeTeam === 'home' ? 'Home' : 'Away';
+    htLabel.textContent = lbl + ' HT ' + unitPlural();
+    ftLabel.textContent = lbl + ' FT ' + unitPlural();
+
+    LINE_FIELDS.forEach(f=>{ document.getElementById(f.id).value = c.lines[f.key]; });
+    clearEntryError();
+  }
+
   async function resetAll(){
-    if(state.home.length===0 && state.away.length===0) return;
-    const ok = confirm('Reset everything? This clears all logged home and away matches for both teams and can\'t be undone.');
+    const c = cur();
+    if(c.home.length===0 && c.away.length===0) return;
+    const label = unitPlural();
+    const ok = confirm('Reset all logged '+label+' matches? This clears the '+label+' data for both home and away teams and can\'t be undone.');
     if(!ok) return;
-    state.home = [];
-    state.away = [];
+    c.home = [];
+    c.away = [];
     state.collapsed = { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false };
-    // clear localStorage
-    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
     renderAll();
-    // no saveState here so it stays empty until next add
-    // but still show a small confirmation
+    saveState();
     saveIndicator.classList.add('show');
     saveIndicator.querySelector('span:last-child').textContent = 'Reset';
     setTimeout(()=>{ saveIndicator.classList.remove('show'); }, 1400);
   }
   resetAllBtn.addEventListener('click', resetAll);
 
+  statTypeSelect.addEventListener('change', ()=>{
+    state.statType = statTypeSelect.value === 'goals' ? 'goals' : 'corners';
+    applyStatType();
+    renderAll();
+    saveState();
+  });
+
   // ---------- team entry toggle ----------
   document.querySelectorAll('.team-toggle button').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       document.querySelectorAll('.team-toggle button').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
-      state.activeTeam = btn.dataset.team;
-      const label = state.activeTeam === 'home' ? 'Home' : 'Away';
-      htLabel.textContent = label + ' HT corners';
-      ftLabel.textContent = label + ' FT corners';
+      cur().activeTeam = btn.dataset.team;
+      const label = cur().activeTeam === 'home' ? 'Home' : 'Away';
+      htLabel.textContent = label + ' HT ' + unitPlural();
+      ftLabel.textContent = label + ' FT ' + unitPlural();
       clearEntryError();
       saveState(); // persist active team selection
     });
@@ -590,12 +689,14 @@
   function addMatch(refocus){
     const htRaw = htInput.value.trim();
     const ftRaw = ftInput.value.trim();
+    const unit = unitPlural();
+    const unitCap = unitPluralCap();
 
     // 1. Missing values
     const htMissing = htRaw==='';
     const ftMissing = ftRaw==='';
     if(htMissing || ftMissing){
-      const which = (htMissing && ftMissing) ? 'half-time and full-time corners' : (htMissing ? 'half-time corners' : 'full-time corners');
+      const which = (htMissing && ftMissing) ? ('half-time and full-time '+unit) : (htMissing ? ('half-time '+unit) : ('full-time '+unit));
       showEntryError('Enter the '+which+' before adding this match.', [htMissing?htInput:null, ftMissing?ftInput:null].filter(Boolean));
       return;
     }
@@ -605,24 +706,24 @@
 
     // 2. Not a valid number at all
     if(!Number.isFinite(ht) || !Number.isFinite(ft)){
-      showEntryError('Corners must be valid numbers.', [!Number.isFinite(ht)?htInput:null, !Number.isFinite(ft)?ftInput:null].filter(Boolean));
+      showEntryError(unitCap+' must be valid numbers.', [!Number.isFinite(ht)?htInput:null, !Number.isFinite(ft)?ftInput:null].filter(Boolean));
       return;
     }
 
     // 3. Negative values
     if(ht < 0 || ft < 0){
-      showEntryError('Corners can\'t be negative.', [ht<0?htInput:null, ft<0?ftInput:null].filter(Boolean));
+      showEntryError(unitCap+' can\'t be negative.', [ht<0?htInput:null, ft<0?ftInput:null].filter(Boolean));
       return;
     }
 
-    // 4. Decimals — corners are whole numbers
+    // 4. Decimals — corners/goals are whole numbers
     if(!Number.isInteger(ht) || !Number.isInteger(ft)){
-      showEntryError('Corners must be whole numbers — no decimals.', [!Number.isInteger(ht)?htInput:null, !Number.isInteger(ft)?ftInput:null].filter(Boolean));
+      showEntryError(unitCap+' must be whole numbers — no decimals.', [!Number.isInteger(ht)?htInput:null, !Number.isInteger(ft)?ftInput:null].filter(Boolean));
       return;
     }
 
     // 5. Unreasonably high values (likely a typo)
-    const MAX_PLAUSIBLE = 30;
+    const MAX_PLAUSIBLE = maxPlausible();
     if(ht > MAX_PLAUSIBLE || ft > MAX_PLAUSIBLE){
       showEntryError('That looks too high for a single match — double-check the value.', [ht>MAX_PLAUSIBLE?htInput:null, ft>MAX_PLAUSIBLE?ftInput:null].filter(Boolean));
       return;
@@ -630,12 +731,12 @@
 
     // 6. Logical consistency — FT total can never be lower than HT total
     if(ft < ht){
-      showEntryError('Full-time corners can\'t be lower than half-time corners for the same match.', [htInput, ftInput]);
+      showEntryError('Full-time '+unit+' can\'t be lower than half-time '+unit+' for the same match.', [htInput, ftInput]);
       return;
     }
 
     clearEntryError();
-    state[state.activeTeam].push({ht, ft});
+    cur()[cur().activeTeam].push({ht, ft});
     htInput.value = '';
     ftInput.value = '';
     if(refocus) htInput.focus();
@@ -644,7 +745,7 @@
   }
 
   function removeMatch(team, idx){
-    state[team].splice(idx,1);
+    cur()[team].splice(idx,1);
     renderAll();
     saveState();
   }
@@ -679,9 +780,10 @@
     link.addEventListener('click', (e)=>{
       e.stopPropagation();
       const team = link.dataset.clear;
-      if(state[team].length===0) return;
-      if(confirm('Clear all logged ' + team + ' matches?')){
-        state[team] = [];
+      const c = cur();
+      if(c[team].length===0) return;
+      if(confirm('Clear all logged ' + team + ' ' + unitPlural() + ' matches?')){
+        c[team] = [];
         renderAll();
         saveState();
       }
@@ -706,10 +808,11 @@
     const hts = list.map(m=>m.ht);
     const fts = list.map(m=>m.ft);
     const seconds = list.map(m=>m.ft-m.ht);
+    const unit = unitPlural();
     return [
-      {num: fmt(avg(hts)), lbl:'Avg HT corners'},
-      {num: fmt(avg(fts)), lbl:'Avg FT corners'},
-      {num: fmt(avg(seconds)), lbl:'Avg 2nd-half corners'},
+      {num: fmt(avg(hts)), lbl:'Avg HT '+unit},
+      {num: fmt(avg(fts)), lbl:'Avg FT '+unit},
+      {num: fmt(avg(seconds)), lbl:'Avg 2nd-half '+unit},
       {num: Math.max(...fts), lbl:'Highest FT total'}
     ];
   }
@@ -787,7 +890,8 @@
     }
     return { n, avgHt, avgSnd, htWins, sndWins, ties };
   }
-  function renderHalfInsight(containerId, list){
+  function renderHalfInsight(containerId, list, noun){
+    noun = noun || 'matches';
     const container = document.getElementById(containerId);
     const body = document.getElementById(containerId+'Body');
     const d = buildHalfInsight(list);
@@ -797,21 +901,22 @@
     const pct = c => d.n ? Math.round(c/d.n*1000)/10 : 0;
 
     let leadLabel, leadNote;
+    const unit = unitPlural();
     if(d.avgHt > d.avgSnd){
       leadLabel = 'First half';
-      leadNote = 'produces more corners on average — '+fmt(d.avgHt)+' vs '+fmt(d.avgSnd)+' per match, and was the higher-scoring half in '+d.htWins+' of '+d.n+' matches ('+pct(d.htWins)+'%).';
+      leadNote = 'produces more '+unit+' on average — '+fmt(d.avgHt)+' vs '+fmt(d.avgSnd)+' per match, and was the higher-scoring half in '+d.htWins+' of '+d.n+' '+noun+' ('+pct(d.htWins)+'%).';
     } else if(d.avgSnd > d.avgHt){
       leadLabel = 'Second half';
-      leadNote = 'produces more corners on average — '+fmt(d.avgSnd)+' vs '+fmt(d.avgHt)+' per match, and was the higher-scoring half in '+d.sndWins+' of '+d.n+' matches ('+pct(d.sndWins)+'%).';
+      leadNote = 'produces more '+unit+' on average — '+fmt(d.avgSnd)+' vs '+fmt(d.avgHt)+' per match, and was the higher-scoring half in '+d.sndWins+' of '+d.n+' '+noun+' ('+pct(d.sndWins)+'%).';
     } else {
       leadLabel = 'Both halves';
-      leadNote = 'produce corners at the same average rate ('+fmt(d.avgHt)+' each).';
+      leadNote = 'produce '+unit+' at the same average rate ('+fmt(d.avgHt)+' each).';
     }
     const maxAvg = Math.max(d.avgHt, d.avgSnd, 0.0001);
 
     body.innerHTML =
       '<div><b>'+leadLabel+'</b> '+leadNote+'</div>'
-      + '<div>Split across matches: 1st-half higher in '+d.htWins+' ('+pct(d.htWins)+'%), 2nd-half higher in '+d.sndWins+' ('+pct(d.sndWins)+'%)'+(d.ties?', tied in '+d.ties+' ('+pct(d.ties)+'%)':'')+'.</div>'
+      + '<div>Split across '+noun+': 1st-half higher in '+d.htWins+' ('+pct(d.htWins)+'%), 2nd-half higher in '+d.sndWins+' ('+pct(d.sndWins)+'%)'+(d.ties?', tied in '+d.ties+' ('+pct(d.ties)+'%)':'')+'.</div>'
       + '<div class="hi-bars">'
         + '<div class="hi-bar"><div class="hi-bar-label"><span>1st half</span><span>'+fmt(d.avgHt)+'</span></div><div class="hi-track"><div class="hi-fill" style="width:'+(d.avgHt/maxAvg*100)+'%;background:var(--home-blue);"></div></div></div>'
         + '<div class="hi-bar"><div class="hi-bar-label"><span>2nd half</span><span>'+fmt(d.avgSnd)+'</span></div><div class="hi-track"><div class="hi-fill" style="width:'+(d.avgSnd/maxAvg*100)+'%;background:var(--flag);"></div></div></div>'
@@ -820,7 +925,7 @@
 
   // ---------- match log tables (bottom section) ----------
   function renderTeamLogTable(team){
-    const list = state[team];
+    const list = cur()[team];
     const wrap = document.getElementById(team+'LogTableWrap');
     document.getElementById(team+'LogCount').textContent = '(' + list.length + ')';
     if(list.length===0){
@@ -866,12 +971,22 @@
     wrap.innerHTML = html;
   }
 
+  // ---------- small-sample warning ----------
+  const SAMPLE_WARN_THRESHOLD = 5;
+  function renderSampleWarning(elId, msg){
+    const el = document.getElementById(elId);
+    if(!msg){ el.style.display='none'; el.innerHTML=''; return; }
+    el.style.display='flex';
+    el.innerHTML = '<span class="mark">ℹ</span><span>'+msg+'</span>';
+  }
+
   // ---------- master render ----------
   function renderAll(){
-    totalPillCount.textContent = state.home.length + state.away.length;
+    const c = cur();
+    totalPillCount.textContent = c.home.length + c.away.length;
 
-    const hasHome = state.home.length>0;
-    const hasAway = state.away.length>0;
+    const hasHome = c.home.length>0;
+    const hasAway = c.away.length>0;
     const emptyState = document.getElementById('emptyState');
     const fullAnalysis = document.getElementById('fullAnalysis');
 
@@ -886,42 +1001,52 @@
       document.getElementById('awayBlock').style.display = hasAway ? 'block':'none';
 
       if(hasHome){
-        document.getElementById('homeN').textContent = state.home.length + ' match'+(state.home.length===1?'':'es');
-        renderCards('homeCards', buildScorecards(state.home));
-        renderHalfInsight('homeHalfInsight', state.home);
-        const hl = parseFloat(document.getElementById('homeHtLine').value)||0;
-        const fl = parseFloat(document.getElementById('homeFtLine').value)||0;
-        const sl = parseFloat(document.getElementById('homeSndLine').value)||0;
-        renderThresholdTable('homeThresholdTable', state.home, hl, fl, sl);
+        document.getElementById('homeN').textContent = c.home.length + ' match'+(c.home.length===1?'':'es');
+        renderSampleWarning('homeSampleWarning', c.home.length < SAMPLE_WARN_THRESHOLD
+          ? 'Based on just '+c.home.length+' match'+(c.home.length===1?'':'es')+' — averages and percentages can swing a lot with so few data points. Treat this as early-stage until you\'ve logged at least '+SAMPLE_WARN_THRESHOLD+'.'
+          : null);
+        renderCards('homeCards', buildScorecards(c.home));
+        renderHalfInsight('homeHalfInsight', c.home);
+        renderThresholdTable('homeThresholdTable', c.home, c.lines.homeHt, c.lines.homeFt, c.lines.homeSnd);
       }
       if(hasAway){
-        document.getElementById('awayN').textContent = state.away.length + ' match'+(state.away.length===1?'':'es');
-        renderCards('awayCards', buildScorecards(state.away));
-        renderHalfInsight('awayHalfInsight', state.away);
-        const hl = parseFloat(document.getElementById('awayHtLine').value)||0;
-        const fl = parseFloat(document.getElementById('awayFtLine').value)||0;
-        const sl = parseFloat(document.getElementById('awaySndLine').value)||0;
-        renderThresholdTable('awayThresholdTable', state.away, hl, fl, sl);
+        document.getElementById('awayN').textContent = c.away.length + ' match'+(c.away.length===1?'':'es');
+        renderSampleWarning('awaySampleWarning', c.away.length < SAMPLE_WARN_THRESHOLD
+          ? 'Based on just '+c.away.length+' match'+(c.away.length===1?'':'es')+' — averages and percentages can swing a lot with so few data points. Treat this as early-stage until you\'ve logged at least '+SAMPLE_WARN_THRESHOLD+'.'
+          : null);
+        renderCards('awayCards', buildScorecards(c.away));
+        renderHalfInsight('awayHalfInsight', c.away);
+        renderThresholdTable('awayThresholdTable', c.away, c.lines.awayHt, c.lines.awayFt, c.lines.awaySnd);
       }
     }
 
     const combinedBlock = document.getElementById('combinedBlock');
     const combinedDivider = document.getElementById('combinedDivider');
     if(hasHome && hasAway){
-      const n = Math.min(state.home.length, state.away.length);
+      // Full cross-join: every home match (this team's home form vs its various
+      // opponents) is combined with every away match (the other team's away form
+      // vs its various opponents). This models every plausible way the upcoming
+      // fixture could play out, given each side's own venue-specific record — it
+      // doesn't assume any real correspondence between a given home fixture and
+      // a given away fixture, and isn't affected by the order matches were logged in.
       const pairs = [];
-      for(let i=0;i<n;i++){ pairs.push({home: state.home[i], away: state.away[i]}); }
+      for(let i=0;i<c.home.length;i++){
+        for(let j=0;j<c.away.length;j++){
+          pairs.push({home: c.home[i], away: c.away[j]});
+        }
+      }
       const combinedList = pairs.map(p=>({ht:p.home.ht+p.away.ht, ft:p.home.ft+p.away.ft}));
 
       combinedBlock.style.display='block';
       combinedDivider.style.display='block';
-      document.getElementById('combinedN').textContent = n + ' paired match'+(n===1?'':'es');
+      document.getElementById('combinedN').textContent = c.home.length+' home × '+c.away.length+' away = '+pairs.length+' scenario'+(pairs.length===1?'':'s');
+      const thin = c.home.length < SAMPLE_WARN_THRESHOLD || c.away.length < SAMPLE_WARN_THRESHOLD;
+      renderSampleWarning('combinedSampleWarning', thin
+        ? 'Built from '+c.home.length+' home '+(c.home.length===1?'match':'matches')+' and '+c.away.length+' away '+(c.away.length===1?'match':'matches')+' — the '+pairs.length+' scenario count looks large, but real matches are what actually drives reliability. Treat this as early-stage until each side has at least '+SAMPLE_WARN_THRESHOLD+' logged matches.'
+        : null);
       renderCards('combinedCards', buildScorecards(combinedList));
-      renderHalfInsight('combinedHalfInsight', combinedList);
-      const hl = parseFloat(document.getElementById('combHtLine').value)||0;
-      const fl = parseFloat(document.getElementById('combFtLine').value)||0;
-      const sl = parseFloat(document.getElementById('combSndLine').value)||0;
-      renderThresholdTable('combinedThresholdTable', combinedList, hl, fl, sl);
+      renderHalfInsight('combinedHalfInsight', combinedList, 'scenarios');
+      renderThresholdTable('combinedThresholdTable', combinedList, c.lines.combHt, c.lines.combFt, c.lines.combSnd);
       renderCombinedLogTable(pairs);
     } else {
       combinedBlock.style.display='none';
@@ -934,9 +1059,12 @@
     applyCollapsedClasses();
   }
 
-  ['homeHtLine','homeFtLine','homeSndLine','awayHtLine','awayFtLine','awaySndLine','combHtLine','combFtLine','combSndLine'].forEach(id=>{
-    document.addEventListener('input', e=>{
-      if(e.target && e.target.id===id) renderAll();
+  LINE_FIELDS.forEach(f=>{
+    document.getElementById(f.id).addEventListener('input', e=>{
+      const val = parseFloat(e.target.value);
+      cur().lines[f.key] = isNaN(val) ? 0 : val;
+      renderAll();
+      saveState();
     });
   });
 
