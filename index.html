@@ -323,9 +323,10 @@
     </div>
     <div class="header-right">
       <div class="select-wrap">
-        <select id="statTypeSelect" aria-label="Track corners or goals">
+        <select id="statTypeSelect" aria-label="Track corners, goals or yellow cards">
           <option value="corners">Corners</option>
           <option value="goals">Goals</option>
+          <option value="cards">Yellow Cards</option>
         </select>
         <span class="select-arrow">▾</span>
       </div>
@@ -508,7 +509,8 @@
 
   const DEFAULT_LINES = {
     corners: { homeHt:4.5, homeSnd:4.5, homeFt:9.5, awayHt:4.5, awaySnd:4.5, awayFt:9.5, combHt:9.5, combSnd:9.5, combFt:19.5 },
-    goals:   { homeHt:0.5, homeSnd:0.5, homeFt:1.5, awayHt:0.5, awaySnd:0.5, awayFt:1.5, combHt:1.5, combSnd:1.5, combFt:2.5 }
+    goals:   { homeHt:0.5, homeSnd:0.5, homeFt:1.5, awayHt:0.5, awaySnd:0.5, awayFt:1.5, combHt:1.5, combSnd:1.5, combFt:2.5 },
+    cards:   { homeHt:1.5, homeSnd:1.5, homeFt:2.5, awayHt:1.5, awaySnd:1.5, awayFt:2.5, combHt:2.5, combSnd:2.5, combFt:4.5 }
   };
 
   function freshTypeState(type){
@@ -516,16 +518,23 @@
   }
 
   const state = {
-    statType: 'corners', // 'corners' | 'goals'
-    data: { corners: freshTypeState('corners'), goals: freshTypeState('goals') },
+    statType: 'corners', // 'corners' | 'goals' | 'cards'
+    data: { corners: freshTypeState('corners'), goals: freshTypeState('goals'), cards: freshTypeState('cards') },
     collapsed: { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false }
   };
 
+  const UNIT_WORDS = {
+    corners: { plural:'corners', pluralCap:'Corners', singular:'corner' },
+    goals:   { plural:'goals',   pluralCap:'Goals',   singular:'goal' },
+    cards:   { plural:'cards',   pluralCap:'Cards',   singular:'card' }
+  };
+  const MAX_PLAUSIBLE = { corners:30, goals:15, cards:12 };
+
   function cur(){ return state.data[state.statType]; }
-  function unitPlural(){ return state.statType==='goals' ? 'goals' : 'corners'; }
-  function unitPluralCap(){ return state.statType==='goals' ? 'Goals' : 'Corners'; }
-  function unitSingular(){ return state.statType==='goals' ? 'goal' : 'corner'; }
-  function maxPlausible(){ return state.statType==='goals' ? 15 : 30; }
+  function unitPlural(){ return UNIT_WORDS[state.statType].plural; }
+  function unitPluralCap(){ return UNIT_WORDS[state.statType].pluralCap; }
+  function unitSingular(){ return UNIT_WORDS[state.statType].singular; }
+  function maxPlausible(){ return MAX_PLAUSIBLE[state.statType]; }
 
   const LINE_FIELDS = [
     {id:'homeHtLine', key:'homeHt'}, {id:'homeSndLine', key:'homeSnd'}, {id:'homeFtLine', key:'homeFt'},
@@ -558,8 +567,8 @@
         const parsed = JSON.parse(raw);
         if(parsed.data && (parsed.data.corners || parsed.data.goals)){
           // current dual-mode format
-          if(parsed.statType==='goals' || parsed.statType==='corners') state.statType = parsed.statType;
-          ['corners','goals'].forEach(t=>{
+          if(parsed.statType==='goals' || parsed.statType==='corners' || parsed.statType==='cards') state.statType = parsed.statType;
+          ['corners','goals','cards'].forEach(t=>{
             const src = parsed.data[t];
             if(src){
               if(Array.isArray(src.home)) state.data[t].home = src.home;
@@ -602,12 +611,18 @@
     saveTimer = setTimeout(()=>saveIndicator.classList.remove('show'), 1400);
   }
 
-  // ---------- switching between Corners / Goals ----------
+  // ---------- switching between Corners / Goals / Yellow Cards ----------
+  const BRAND_TITLES = { corners:'Corner Watch', goals:'Goal Watch', cards:'Card Watch' };
+  const FIELD_PLACEHOLDERS = {
+    corners: { ht:'e.g. 3', ft:'e.g. 7' },
+    goals:   { ht:'e.g. 1', ft:'e.g. 3' },
+    cards:   { ht:'e.g. 1', ft:'e.g. 3' }
+  };
   function applyStatType(){
     statTypeSelect.value = state.statType;
     const c = cur();
 
-    brandTitle.textContent = state.statType==='goals' ? 'Goal Watch' : 'Corner Watch';
+    brandTitle.textContent = BRAND_TITLES[state.statType];
     brandTagline.textContent = 'Half-time & full-time '+unitPlural()+' analysis, match by match';
     document.title = brandTitle.textContent + ' — ' + unitPluralCap() + ' Analysis Tool';
 
@@ -616,8 +631,8 @@
     entryPanelSub.textContent = 'Choose the team you\'re recording '+unitPlural()+' for, then enter that team\'s '+unitPlural()+' at half-time and full-time.';
     entryHint.textContent = 'FT '+unitPlural()+' is the total for the whole match. The tool works out second-half '+unitPlural()+' as FT minus HT automatically. The full list of everything you\'ve entered is at the bottom of the page.';
 
-    htInput.placeholder = state.statType==='goals' ? 'e.g. 1' : 'e.g. 3';
-    ftInput.placeholder = state.statType==='goals' ? 'e.g. 3' : 'e.g. 7';
+    htInput.placeholder = FIELD_PLACEHOLDERS[state.statType].ht;
+    ftInput.placeholder = FIELD_PLACEHOLDERS[state.statType].ft;
 
     document.querySelectorAll('.team-toggle button').forEach(b=>{
       b.classList.toggle('active', b.dataset.team === c.activeTeam);
@@ -677,7 +692,7 @@
   resetAllBtn.addEventListener('click', resetAll);
 
   statTypeSelect.addEventListener('change', ()=>{
-    state.statType = statTypeSelect.value === 'goals' ? 'goals' : 'corners';
+    state.statType = ['corners','goals','cards'].includes(statTypeSelect.value) ? statTypeSelect.value : 'corners';
     applyStatType();
     renderAll();
     saveState();
