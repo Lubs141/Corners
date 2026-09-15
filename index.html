@@ -129,6 +129,17 @@
   .team-toggle button.active[data-team="away"]{ background:var(--away-red); color:#fff;}
   .team-toggle button:not(.active):hover{ background:#f0efe8; }
 
+  .entry-mode-toggle{
+    display:flex; gap:6px; margin-bottom:16px;
+  }
+  .entry-mode-toggle button{
+    flex:1; padding:8px 6px; border:1.5px solid var(--line-soft); border-radius:7px; background:#fff;
+    font-family:'Inter', sans-serif; font-size:12px; font-weight:700; color:#6f7b73; cursor:pointer;
+    transition:background .15s, color .15s, border-color .15s;
+  }
+  .entry-mode-toggle button.active{ background:var(--flag); border-color:var(--flag); color:#fff; }
+  .entry-mode-toggle button:not(.active):hover{ background:#f0efe8; }
+
   .field-row{display:flex; gap:10px; margin-bottom:12px;}
   .field{flex:1;}
   .field label{
@@ -191,6 +202,7 @@
     font-family:'Barlow Condensed', sans-serif; font-size:32px; font-weight:800; color:var(--flag); line-height:1;
   }
   .scorecard .lbl{font-size:11px; color:rgba(244,243,238,0.7); margin-top:5px; font-weight:600;}
+  .scorecard .sub{font-size:9.5px; color:rgba(244,243,238,0.45); margin-top:3px; font-weight:600;}
 
   table.stat-table{width:100%; border-collapse:collapse; margin-bottom:22px; font-size:13.5px;}
   table.stat-table th{
@@ -411,12 +423,18 @@
       <button type="button" data-team="away">Away team</button>
     </div>
 
+    <div class="entry-mode-toggle" id="entryModeToggle">
+      <button type="button" data-mode="both" class="active">Both halves</button>
+      <button type="button" data-mode="htOnly">HT only</button>
+      <button type="button" data-mode="ftOnly">FT only</button>
+    </div>
+
     <div class="field-row">
-      <div class="field">
+      <div class="field" id="htField">
         <label for="htInput" id="htLabel">Home HT corners</label>
         <input type="number" id="htInput" min="0" step="1" inputmode="numeric" enterkeyhint="next" placeholder="e.g. 3">
       </div>
-      <div class="field">
+      <div class="field" id="ftField">
         <label for="ftInput" id="ftLabel">Home FT corners</label>
         <input type="number" id="ftInput" min="0" step="1" inputmode="numeric" enterkeyhint="done" placeholder="e.g. 7">
       </div>
@@ -494,7 +512,7 @@
   };
 
   function freshTypeState(type){
-    return { activeTeam:'home', home:[], away:[], lines: Object.assign({}, DEFAULT_LINES[type]) };
+    return { activeTeam:'home', entryMode:'both', home:[], away:[], lines: Object.assign({}, DEFAULT_LINES[type]) };
   }
 
   const state = {
@@ -547,6 +565,7 @@
               if(Array.isArray(src.home)) state.data[t].home = src.home;
               if(Array.isArray(src.away)) state.data[t].away = src.away;
               if(src.activeTeam==='home' || src.activeTeam==='away') state.data[t].activeTeam = src.activeTeam;
+              if(src.entryMode==='both' || src.entryMode==='htOnly' || src.entryMode==='ftOnly') state.data[t].entryMode = src.entryMode;
               if(src.lines) state.data[t].lines = Object.assign({}, state.data[t].lines, src.lines);
             }
           });
@@ -608,8 +627,37 @@
     ftLabel.textContent = lbl + ' FT ' + unitPlural();
 
     LINE_FIELDS.forEach(f=>{ document.getElementById(f.id).value = c.lines[f.key]; });
+    applyEntryMode();
     clearEntryError();
   }
+
+  // ---------- switching between Both / HT-only / FT-only entry ----------
+  function applyEntryMode(){
+    const c = cur();
+    const mode = c.entryMode;
+    document.querySelectorAll('.entry-mode-toggle button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+    document.getElementById('htField').style.display = (mode==='ftOnly') ? 'none' : '';
+    document.getElementById('ftField').style.display = (mode==='htOnly') ? 'none' : '';
+
+    const unit = unitPlural();
+    if(mode==='htOnly'){
+      entryHint.textContent = 'Only half-time '+unit+' will be saved for this entry. Its full-time and second-half figures will show as "—" unless you also log this match\'s FT '+unit+' — either by switching to "Both halves" or adding a separate FT-only entry.';
+    } else if(mode==='ftOnly'){
+      entryHint.textContent = 'Only full-time '+unit+' will be saved for this entry. Its half-time and second-half figures will show as "—" unless you also log this match\'s HT '+unit+' — either by switching to "Both halves" or adding a separate HT-only entry.';
+    } else {
+      entryHint.textContent = 'FT '+unit+' is the total for the whole match. The tool works out second-half '+unit+' as FT minus HT automatically. The full list of everything you\'ve entered is at the bottom of the page.';
+    }
+  }
+  document.querySelectorAll('.entry-mode-toggle button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      cur().entryMode = btn.dataset.mode;
+      applyEntryMode();
+      clearEntryError();
+      saveState();
+    });
+  });
 
   async function resetAll(){
     const c = cur();
@@ -654,7 +702,12 @@
   htInput.addEventListener('keydown', e=>{
     if(e.key==='Enter'){
       e.preventDefault();
-      ftInput.focus();
+      if(cur().entryMode === 'htOnly'){
+        addMatch(true);
+        htInput.blur();
+      } else {
+        ftInput.focus();
+      }
     }
   });
   ftInput.addEventListener('keydown', e=>{
@@ -687,59 +740,63 @@
   }
 
   function addMatch(refocus){
+    const mode = cur().entryMode;
+    const wantHt = mode !== 'ftOnly';
+    const wantFt = mode !== 'htOnly';
+
     const htRaw = htInput.value.trim();
     const ftRaw = ftInput.value.trim();
     const unit = unitPlural();
     const unitCap = unitPluralCap();
 
-    // 1. Missing values
-    const htMissing = htRaw==='';
-    const ftMissing = ftRaw==='';
+    // 1. Missing values (only for whichever field(s) this entry mode collects)
+    const htMissing = wantHt && htRaw==='';
+    const ftMissing = wantFt && ftRaw==='';
     if(htMissing || ftMissing){
       const which = (htMissing && ftMissing) ? ('half-time and full-time '+unit) : (htMissing ? ('half-time '+unit) : ('full-time '+unit));
       showEntryError('Enter the '+which+' before adding this match.', [htMissing?htInput:null, ftMissing?ftInput:null].filter(Boolean));
       return;
     }
 
-    const ht = Number(htRaw);
-    const ft = Number(ftRaw);
+    const ht = wantHt ? Number(htRaw) : null;
+    const ft = wantFt ? Number(ftRaw) : null;
 
     // 2. Not a valid number at all
-    if(!Number.isFinite(ht) || !Number.isFinite(ft)){
-      showEntryError(unitCap+' must be valid numbers.', [!Number.isFinite(ht)?htInput:null, !Number.isFinite(ft)?ftInput:null].filter(Boolean));
+    if((wantHt && !Number.isFinite(ht)) || (wantFt && !Number.isFinite(ft))){
+      showEntryError(unitCap+' must be valid numbers.', [wantHt && !Number.isFinite(ht)?htInput:null, wantFt && !Number.isFinite(ft)?ftInput:null].filter(Boolean));
       return;
     }
 
     // 3. Negative values
-    if(ht < 0 || ft < 0){
-      showEntryError(unitCap+' can\'t be negative.', [ht<0?htInput:null, ft<0?ftInput:null].filter(Boolean));
+    if((wantHt && ht < 0) || (wantFt && ft < 0)){
+      showEntryError(unitCap+' can\'t be negative.', [wantHt && ht<0?htInput:null, wantFt && ft<0?ftInput:null].filter(Boolean));
       return;
     }
 
     // 4. Decimals — corners/goals are whole numbers
-    if(!Number.isInteger(ht) || !Number.isInteger(ft)){
-      showEntryError(unitCap+' must be whole numbers — no decimals.', [!Number.isInteger(ht)?htInput:null, !Number.isInteger(ft)?ftInput:null].filter(Boolean));
+    if((wantHt && !Number.isInteger(ht)) || (wantFt && !Number.isInteger(ft))){
+      showEntryError(unitCap+' must be whole numbers — no decimals.', [wantHt && !Number.isInteger(ht)?htInput:null, wantFt && !Number.isInteger(ft)?ftInput:null].filter(Boolean));
       return;
     }
 
     // 5. Unreasonably high values (likely a typo)
     const MAX_PLAUSIBLE = maxPlausible();
-    if(ht > MAX_PLAUSIBLE || ft > MAX_PLAUSIBLE){
-      showEntryError('That looks too high for a single match — double-check the value.', [ht>MAX_PLAUSIBLE?htInput:null, ft>MAX_PLAUSIBLE?ftInput:null].filter(Boolean));
+    if((wantHt && ht > MAX_PLAUSIBLE) || (wantFt && ft > MAX_PLAUSIBLE)){
+      showEntryError('That looks too high for a single match — double-check the value.', [wantHt && ht>MAX_PLAUSIBLE?htInput:null, wantFt && ft>MAX_PLAUSIBLE?ftInput:null].filter(Boolean));
       return;
     }
 
-    // 6. Logical consistency — FT total can never be lower than HT total
-    if(ft < ht){
+    // 6. Logical consistency — FT total can never be lower than HT total (only checkable when both are entered)
+    if(wantHt && wantFt && ft < ht){
       showEntryError('Full-time '+unit+' can\'t be lower than half-time '+unit+' for the same match.', [htInput, ftInput]);
       return;
     }
 
     clearEntryError();
     cur()[cur().activeTeam].push({ht, ft});
-    htInput.value = '';
-    ftInput.value = '';
-    if(refocus) htInput.focus();
+    if(wantHt) htInput.value = '';
+    if(wantFt) ftInput.value = '';
+    if(refocus) (wantHt ? htInput : ftInput).focus();
     renderAll();
     saveState();
   }
@@ -805,20 +862,24 @@
 
   function buildScorecards(list){
     if(list.length===0) return [];
-    const hts = list.map(m=>m.ht);
-    const fts = list.map(m=>m.ft);
-    const seconds = list.map(m=>m.ft-m.ht);
+    const total = list.length;
+    const hts = list.map(m=>m.ht).filter(v=>v!=null);
+    const fts = list.map(m=>m.ft).filter(v=>v!=null);
+    const seconds = list.filter(m=>m.ht!=null && m.ft!=null).map(m=>m.ft-m.ht);
     const unit = unitPlural();
+    const cov = n => n<total ? (n+' of '+total) : null;
     return [
-      {num: fmt(avg(hts)), lbl:'Avg HT '+unit},
-      {num: fmt(avg(fts)), lbl:'Avg FT '+unit},
-      {num: fmt(avg(seconds)), lbl:'Avg 2nd-half '+unit},
-      {num: Math.max(...fts), lbl:'Highest FT total'}
+      {num: hts.length? fmt(avg(hts)) : '—', lbl:'Avg HT '+unit, sub: cov(hts.length)},
+      {num: fts.length? fmt(avg(fts)) : '—', lbl:'Avg FT '+unit, sub: cov(fts.length)},
+      {num: seconds.length? fmt(avg(seconds)) : '—', lbl:'Avg 2nd-half '+unit, sub: cov(seconds.length)},
+      {num: fts.length? Math.max(...fts) : '—', lbl:'Highest FT total', sub: cov(fts.length)}
     ];
   }
   function renderCards(containerId, cards){
     document.getElementById(containerId).innerHTML = cards.map(c=>
-      '<div class="scorecard"><div class="num">'+c.num+'</div><div class="lbl">'+c.lbl+'</div></div>'
+      '<div class="scorecard"><div class="num">'+c.num+'</div><div class="lbl">'+c.lbl+'</div>'
+      + (c.sub ? '<div class="sub">'+c.sub+'</div>' : '')
+      + '</div>'
     ).join('');
   }
   function thresholdStats(values, line){
@@ -849,9 +910,9 @@
   function renderThresholdTable(tableId, list, htLine, ftLine, sndLine){
     const table = document.getElementById(tableId);
     if(list.length===0){ table.innerHTML=''; return; }
-    const hts = list.map(m=>m.ht);
-    const fts = list.map(m=>m.ft);
-    const snds = list.map(m=>m.ft-m.ht);
+    const hts = list.map(m=>m.ht).filter(v=>v!=null);
+    const fts = list.map(m=>m.ft).filter(v=>v!=null);
+    const snds = list.filter(m=>m.ht!=null && m.ft!=null).map(m=>m.ft-m.ht);
     const rows = [
       {label:'Half-time · line '+htLine, stats: thresholdStats(hts, htLine)},
       {label:'2nd-half · line '+sndLine, stats: thresholdStats(snds, sndLine)},
@@ -859,6 +920,10 @@
     ];
     let html = '<thead><tr><th>Period</th><th>Over</th><th>Under</th><th>Push</th><th>Over %</th></tr></thead><tbody>';
     rows.forEach(r=>{
+      if(r.stats.total===0){
+        html += '<tr><td class="period">'+r.label+'</td><td colspan="4" style="color:#8b978f; font-style:italic;">No matching data logged yet</td></tr>';
+        return;
+      }
       const decidable = r.stats.over + r.stats.under; // excludes pushes
       const overOddsVal = trueOdds(r.stats.over, decidable);
       const underOddsVal = trueOdds(r.stats.under, decidable);
@@ -874,12 +939,14 @@
     table.innerHTML = html;
   }
 
-  // ---------- half-by-half comparison (which half produced more corners) ----------
+  // ---------- half-by-half comparison (which half produced most corners) ----------
   function buildHalfInsight(list){
-    const n = list.length;
+    const rawTotal = list.length;
+    const complete = list.filter(m=>m.ht!=null && m.ft!=null);
+    const n = complete.length;
     if(n===0) return null;
-    const hts = list.map(m=>m.ht);
-    const snds = list.map(m=>m.ft-m.ht);
+    const hts = complete.map(m=>m.ht);
+    const snds = complete.map(m=>m.ft-m.ht);
     const avgHt = hts.reduce((a,b)=>a+b,0)/n;
     const avgSnd = snds.reduce((a,b)=>a+b,0)/n;
     let htWins=0, sndWins=0, ties=0;
@@ -888,7 +955,7 @@
       else if(snds[i] > hts[i]) sndWins++;
       else ties++;
     }
-    return { n, avgHt, avgSnd, htWins, sndWins, ties };
+    return { n, rawTotal, avgHt, avgSnd, htWins, sndWins, ties };
   }
   function renderHalfInsight(containerId, list, noun){
     noun = noun || 'matches';
@@ -917,6 +984,7 @@
     body.innerHTML =
       '<div><b>'+leadLabel+'</b> '+leadNote+'</div>'
       + '<div>Split across '+noun+': 1st-half higher in '+d.htWins+' ('+pct(d.htWins)+'%), 2nd-half higher in '+d.sndWins+' ('+pct(d.sndWins)+'%)'+(d.ties?', tied in '+d.ties+' ('+pct(d.ties)+'%)':'')+'.</div>'
+      + (d.n < d.rawTotal ? '<div style="margin-top:6px; font-size:11.5px; color:#6f8073;">Based on the '+d.n+' of '+d.rawTotal+' '+noun+' with both halves logged — '+noun+' with only HT or only FT entered aren\'t counted here.</div>' : '')
       + '<div class="hi-bars">'
         + '<div class="hi-bar"><div class="hi-bar-label"><span>1st half</span><span>'+fmt(d.avgHt)+'</span></div><div class="hi-track"><div class="hi-fill" style="width:'+(d.avgHt/maxAvg*100)+'%;background:var(--home-blue);"></div></div></div>'
         + '<div class="hi-bar"><div class="hi-bar-label"><span>2nd half</span><span>'+fmt(d.avgSnd)+'</span></div><div class="hi-track"><div class="hi-fill" style="width:'+(d.avgSnd/maxAvg*100)+'%;background:var(--flag);"></div></div></div>'
@@ -924,6 +992,7 @@
   }
 
   // ---------- match log tables (bottom section) ----------
+  function dv(v){ return v==null ? '—' : v; } // display value, '—' for missing data
   function renderTeamLogTable(team){
     const list = cur()[team];
     const wrap = document.getElementById(team+'LogTableWrap');
@@ -934,11 +1003,12 @@
     }
     let html = '<table class="matches"><thead><tr><th>#</th><th>HT</th><th>FT</th><th>2nd half</th><th></th></tr></thead><tbody>';
     list.forEach((m,i)=>{
+      const snd = (m.ht!=null && m.ft!=null) ? (m.ft-m.ht) : null;
       html += '<tr>'
         + '<td>'+(i+1)+'</td>'
-        + '<td>'+m.ht+'</td>'
-        + '<td>'+m.ft+'</td>'
-        + '<td>'+(m.ft-m.ht)+'</td>'
+        + '<td>'+dv(m.ht)+'</td>'
+        + '<td>'+dv(m.ft)+'</td>'
+        + '<td>'+dv(snd)+'</td>'
         + '<td><button class="rm" data-team="'+team+'" data-idx="'+i+'" title="Remove">✕</button></td>'
         + '</tr>';
     });
@@ -959,12 +1029,14 @@
     block.style.display='block';
     let html = '<table class="matches"><thead><tr><th>#</th><th>Home HT</th><th>Home FT</th><th>Away HT</th><th>Away FT</th><th>Comb. HT</th><th>Comb. FT</th></tr></thead><tbody>';
     pairs.forEach((p,i)=>{
+      const combHt = (p.home.ht!=null && p.away.ht!=null) ? (p.home.ht+p.away.ht) : null;
+      const combFt = (p.home.ft!=null && p.away.ft!=null) ? (p.home.ft+p.away.ft) : null;
       html += '<tr>'
         + '<td>'+(i+1)+'</td>'
-        + '<td>'+p.home.ht+'</td><td>'+p.home.ft+'</td>'
-        + '<td>'+p.away.ht+'</td><td>'+p.away.ft+'</td>'
-        + '<td><strong>'+(p.home.ht+p.away.ht)+'</strong></td>'
-        + '<td><strong>'+(p.home.ft+p.away.ft)+'</strong></td>'
+        + '<td>'+dv(p.home.ht)+'</td><td>'+dv(p.home.ft)+'</td>'
+        + '<td>'+dv(p.away.ht)+'</td><td>'+dv(p.away.ft)+'</td>'
+        + '<td><strong>'+dv(combHt)+'</strong></td>'
+        + '<td><strong>'+dv(combFt)+'</strong></td>'
         + '</tr>';
     });
     html += '</tbody></table>';
@@ -1035,7 +1107,10 @@
           pairs.push({home: c.home[i], away: c.away[j]});
         }
       }
-      const combinedList = pairs.map(p=>({ht:p.home.ht+p.away.ht, ft:p.home.ft+p.away.ft}));
+      const combinedList = pairs.map(p=>({
+        ht: (p.home.ht!=null && p.away.ht!=null) ? p.home.ht+p.away.ht : null,
+        ft: (p.home.ft!=null && p.away.ft!=null) ? p.home.ft+p.away.ft : null
+      }));
 
       combinedBlock.style.display='block';
       combinedDivider.style.display='block';
