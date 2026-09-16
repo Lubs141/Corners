@@ -81,6 +81,10 @@
     position:absolute; right:13px; top:50%; transform:translateY(-50%);
     pointer-events:none; font-size:11px; color:rgba(244,243,238,0.7);
   }
+  .select-wrap--light select{
+    color:var(--ink); background:#fff; border-color:var(--line-soft);
+  }
+  .select-wrap--light .select-arrow{ color:#8b978f; }
   .reset-all-btn{
     font-family:'Inter', sans-serif; font-size:12.5px; font-weight:600;
     color:rgba(244,243,238,0.75);
@@ -297,6 +301,24 @@
   .log-empty{padding:20px 10px; font-size:13px; color:#9aa59d; text-align:center;}
   .tag{display:inline-block; padding:2px 8px; border-radius:100px; font-size:11px; font-weight:700;}
 
+  .fixture-bar{
+    display:flex; align-items:flex-end; gap:10px; margin-bottom:12px; flex-wrap:wrap;
+  }
+  .fixture-select-wrap{flex:1; min-width:180px;}
+  .fixture-select-wrap label{display:block; font-size:12px; font-weight:700; color:#5b6a60; margin-bottom:6px;}
+  .fixture-select-wrap .select-wrap{display:block;}
+  .fixture-select-wrap select{width:100%; padding:9px 30px 9px 12px; font-size:13.5px;}
+  .fixture-btn{
+    font-family:'Inter', sans-serif; font-size:12.5px; font-weight:700; color:#5b6a60;
+    background:#fff; border:1.5px solid var(--line-soft); border-radius:8px; padding:9px 14px; cursor:pointer;
+    white-space:nowrap;
+  }
+  .fixture-btn:hover{ background:#f0efe8; }
+  .fixture-btn--danger{ color:#b1483a; border-color:#f0c7bd; }
+  .fixture-btn--danger:hover{ background:#fbeae6; }
+  .fixture-btn--danger:disabled, .fixture-btn:disabled{ opacity:0.4; cursor:not-allowed; }
+  .fixture-btn--danger:disabled:hover{ background:#fff; }
+
   .matchup-bar{
     display:flex; align-items:flex-end; gap:14px; background:#fff; border:1px solid var(--line-soft);
     border-radius:10px; padding:14px 16px; margin-bottom:20px; flex-wrap:wrap;
@@ -352,6 +374,18 @@
       <button type="button" class="reset-all-btn" id="resetAllBtn">Reset all</button>
     </div>
   </header>
+
+  <div class="fixture-bar">
+    <div class="fixture-select-wrap">
+      <label for="fixtureSelect">Fixture</label>
+      <div class="select-wrap select-wrap--light">
+        <select id="fixtureSelect"></select>
+        <span class="select-arrow">▾</span>
+      </div>
+    </div>
+    <button type="button" class="fixture-btn" id="newFixtureBtn" title="Add a new fixture">+ New fixture</button>
+    <button type="button" class="fixture-btn fixture-btn--danger" id="deleteFixtureBtn" title="Delete this fixture">Delete fixture</button>
+  </div>
 
   <div class="matchup-bar">
     <div class="matchup-field">
@@ -543,8 +577,29 @@
     cards:   { homeHt:1.5, homeSnd:1.5, homeFt:2.5, awayHt:1.5, awaySnd:1.5, awayFt:2.5, combHt:2.5, combSnd:2.5, combFt:4.5 }
   };
 
+  function escapeHtml(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  let fixtureUid = 0;
+  function genFixtureId(){
+    fixtureUid += 1;
+    return 'fx_'+Date.now().toString(36)+'_'+fixtureUid;
+  }
+  function freshFixture(type, seq){
+    return {
+      id: genFixtureId(), seq: seq,
+      activeTeam:'home', entryMode:'both', home:[], away:[],
+      lines: Object.assign({}, DEFAULT_LINES[type]),
+      teamNames: { home:'', away:'' }
+    };
+  }
+  // Each stat type keeps its own independent list of fixtures — e.g. "Arsenal vs
+  // Chelsea" and "Liverpool vs Man City" can both be tracked under Corners at
+  // once, each with its own Home/Away logs, lines, entry mode and team names.
   function freshTypeState(type){
-    return { activeTeam:'home', entryMode:'both', home:[], away:[], lines: Object.assign({}, DEFAULT_LINES[type]), teamNames: { home:'', away:'' } };
+    const f = freshFixture(type, 1);
+    return { activeFixtureId: f.id, nextSeq: 2, fixtures: { [f.id]: f } };
   }
 
   const state = {
@@ -560,11 +615,21 @@
   };
   const MAX_PLAUSIBLE = { corners:30, goals:15, cards:12 };
 
-  function cur(){ return state.data[state.statType]; }
+  function typeState(){ return state.data[state.statType]; } // fixture list for the current stat type
+  function cur(){ const ts = typeState(); return ts.fixtures[ts.activeFixtureId]; } // the active fixture's data
   function unitPlural(){ return UNIT_WORDS[state.statType].plural; }
   function unitPluralCap(){ return UNIT_WORDS[state.statType].pluralCap; }
   function unitSingular(){ return UNIT_WORDS[state.statType].singular; }
   function maxPlausible(){ return MAX_PLAUSIBLE[state.statType]; }
+
+  function fixtureLabel(fixture){
+    const h = (fixture.teamNames.home||'').trim();
+    const a = (fixture.teamNames.away||'').trim();
+    if(h && a) return h+' vs '+a;
+    if(h) return h+' vs (away TBD)';
+    if(a) return '(home TBD) vs '+a;
+    return 'Fixture '+fixture.seq;
+  }
 
   // Team names are kept per stat type — the same two clubs might be tracked
   // under different names/contexts across Corners, Goals and Cards separately,
@@ -599,6 +664,9 @@
   const resetAllBtn = document.getElementById('resetAllBtn');
   const homeTeamNameInput = document.getElementById('homeTeamNameInput');
   const awayTeamNameInput = document.getElementById('awayTeamNameInput');
+  const fixtureSelect = document.getElementById('fixtureSelect');
+  const newFixtureBtn = document.getElementById('newFixtureBtn');
+  const deleteFixtureBtn = document.getElementById('deleteFixtureBtn');
 
   const statTypeSelect = document.getElementById('statTypeSelect');
   const brandTitle = document.getElementById('brandTitle');
@@ -615,34 +683,68 @@
       if(raw){
         const parsed = JSON.parse(raw);
         if(parsed.data && (parsed.data.corners || parsed.data.goals)){
-          // current dual-mode format
           if(parsed.statType==='goals' || parsed.statType==='corners' || parsed.statType==='cards') state.statType = parsed.statType;
+
           ['corners','goals','cards'].forEach(t=>{
             const src = parsed.data[t];
-            if(src){
-              if(Array.isArray(src.home)) state.data[t].home = src.home;
-              if(Array.isArray(src.away)) state.data[t].away = src.away;
-              if(src.activeTeam==='home' || src.activeTeam==='away') state.data[t].activeTeam = src.activeTeam;
-              if(src.entryMode==='both' || src.entryMode==='htOnly' || src.entryMode==='ftOnly') state.data[t].entryMode = src.entryMode;
-              if(src.lines) state.data[t].lines = Object.assign({}, state.data[t].lines, src.lines);
+            if(!src) return;
+
+            if(src.fixtures && typeof src.fixtures === 'object' && Object.keys(src.fixtures).length){
+              // current multi-fixture format
+              const ids = Object.keys(src.fixtures);
+              const fixtures = {};
+              let maxSeq = 0;
+              ids.forEach(id=>{
+                const sf = src.fixtures[id];
+                const seq = (typeof sf.seq === 'number') ? sf.seq : 1;
+                const base = freshFixture(t, seq);
+                base.id = id; // keep the original id so activeFixtureId still resolves
+                if(Array.isArray(sf.home)) base.home = sf.home;
+                if(Array.isArray(sf.away)) base.away = sf.away;
+                if(sf.activeTeam==='home' || sf.activeTeam==='away') base.activeTeam = sf.activeTeam;
+                if(sf.entryMode==='both' || sf.entryMode==='htOnly' || sf.entryMode==='ftOnly') base.entryMode = sf.entryMode;
+                if(sf.lines) base.lines = Object.assign({}, base.lines, sf.lines);
+                if(sf.teamNames){
+                  if(typeof sf.teamNames.home === 'string') base.teamNames.home = sf.teamNames.home;
+                  if(typeof sf.teamNames.away === 'string') base.teamNames.away = sf.teamNames.away;
+                }
+                fixtures[id] = base;
+                if(seq > maxSeq) maxSeq = seq;
+              });
+              state.data[t].fixtures = fixtures;
+              state.data[t].activeFixtureId = (src.activeFixtureId && fixtures[src.activeFixtureId]) ? src.activeFixtureId : ids[0];
+              state.data[t].nextSeq = (typeof src.nextSeq === 'number') ? src.nextSeq : (maxSeq+1);
+            } else if(Array.isArray(src.home) || Array.isArray(src.away)){
+              // previous single-fixture-per-type format — fold into this type's one default fixture
+              const ts = state.data[t];
+              const f = ts.fixtures[ts.activeFixtureId];
+              if(Array.isArray(src.home)) f.home = src.home;
+              if(Array.isArray(src.away)) f.away = src.away;
+              if(src.activeTeam==='home' || src.activeTeam==='away') f.activeTeam = src.activeTeam;
+              if(src.entryMode==='both' || src.entryMode==='htOnly' || src.entryMode==='ftOnly') f.entryMode = src.entryMode;
+              if(src.lines) f.lines = Object.assign({}, f.lines, src.lines);
               if(src.teamNames){
-                if(typeof src.teamNames.home === 'string') state.data[t].teamNames.home = src.teamNames.home;
-                if(typeof src.teamNames.away === 'string') state.data[t].teamNames.away = src.teamNames.away;
+                if(typeof src.teamNames.home === 'string') f.teamNames.home = src.teamNames.home;
+                if(typeof src.teamNames.away === 'string') f.teamNames.away = src.teamNames.away;
               }
             }
           });
-          // legacy: a brief earlier version stored one shared teamNames at the top level —
-          // fold that into Corners only, so nothing is silently lost, but it no longer
-          // applies to Goals/Cards going forward.
-          if(parsed.teamNames && !parsed.data.corners.teamNames){
-            if(typeof parsed.teamNames.home === 'string') state.data.corners.teamNames.home = parsed.teamNames.home;
-            if(typeof parsed.teamNames.away === 'string') state.data.corners.teamNames.away = parsed.teamNames.away;
+
+          // legacy: an even earlier version stored one shared teamNames at the very top level —
+          // fold that into Corners' single fixture only if it hasn't already picked up a name.
+          if(parsed.teamNames){
+            const f = state.data.corners.fixtures[state.data.corners.activeFixtureId];
+            if(!(f.teamNames.home||'').trim() && !(f.teamNames.away||'').trim()){
+              if(typeof parsed.teamNames.home === 'string') f.teamNames.home = parsed.teamNames.home;
+              if(typeof parsed.teamNames.away === 'string') f.teamNames.away = parsed.teamNames.away;
+            }
           }
         } else if(Array.isArray(parsed.home) || Array.isArray(parsed.away)){
-          // legacy single-mode format — migrate into corners
-          if(Array.isArray(parsed.home)) state.data.corners.home = parsed.home;
-          if(Array.isArray(parsed.away)) state.data.corners.away = parsed.away;
-          if(parsed.activeTeam==='home' || parsed.activeTeam==='away') state.data.corners.activeTeam = parsed.activeTeam;
+          // original flat single-type format — migrate into corners' one default fixture
+          const f = state.data.corners.fixtures[state.data.corners.activeFixtureId];
+          if(Array.isArray(parsed.home)) f.home = parsed.home;
+          if(Array.isArray(parsed.away)) f.away = parsed.away;
+          if(parsed.activeTeam==='home' || parsed.activeTeam==='away') f.activeTeam = parsed.activeTeam;
           state.statType = 'corners';
         }
         if(parsed.collapsed) state.collapsed = Object.assign(state.collapsed, parsed.collapsed);
@@ -680,6 +782,7 @@
   };
   function applyStatType(){
     statTypeSelect.value = state.statType;
+    renderFixtureSelect();
     const c = cur();
 
     brandTitle.textContent = BRAND_TITLES[state.statType];
@@ -704,6 +807,52 @@
     applyEntryMode();
     clearEntryError();
   }
+
+  // ---------- fixture selector: multiple fixtures per stat type ----------
+  function renderFixtureSelect(){
+    const ts = typeState();
+    const ids = Object.keys(ts.fixtures).sort((a,b)=> ts.fixtures[a].seq - ts.fixtures[b].seq);
+    fixtureSelect.innerHTML = ids.map(id=>{
+      const f = ts.fixtures[id];
+      const sel = id===ts.activeFixtureId ? ' selected' : '';
+      return '<option value="'+escapeHtml(id)+'"'+sel+'>'+escapeHtml(fixtureLabel(f))+'</option>';
+    }).join('');
+    deleteFixtureBtn.disabled = ids.length <= 1;
+  }
+
+  fixtureSelect.addEventListener('change', ()=>{
+    typeState().activeFixtureId = fixtureSelect.value;
+    applyStatType();
+    renderAll();
+    saveState();
+  });
+
+  newFixtureBtn.addEventListener('click', ()=>{
+    const ts = typeState();
+    const f = freshFixture(state.statType, ts.nextSeq);
+    ts.nextSeq += 1;
+    ts.fixtures[f.id] = f;
+    ts.activeFixtureId = f.id;
+    applyStatType();
+    renderAll();
+    saveState();
+    homeTeamNameInput.focus();
+  });
+
+  deleteFixtureBtn.addEventListener('click', ()=>{
+    const ts = typeState();
+    const ids = Object.keys(ts.fixtures);
+    if(ids.length <= 1) return; // always keep at least one fixture per stat type
+    const label = fixtureLabel(cur());
+    const ok = confirm('Delete fixture "'+label+'" and all its logged '+unitPlural()+' data? This can\'t be undone.');
+    if(!ok) return;
+    delete ts.fixtures[ts.activeFixtureId];
+    const remaining = Object.keys(ts.fixtures).sort((a,b)=> ts.fixtures[a].seq - ts.fixtures[b].seq);
+    ts.activeFixtureId = remaining[0];
+    applyStatType();
+    renderAll();
+    saveState();
+  });
 
   // ---------- team names: propagate into every label that references Home/Away ----------
   function refreshTeamLabels(){
@@ -732,6 +881,8 @@
     combinedSub.textContent = 'Every '+teamDisplay('home')+' fixture is combined with every '+teamDisplay('away')+' fixture — '
       +teamDisplay('home')+'\'s home-ground '+unitPlural()+' against its various opponents, matched against '
       +teamDisplay('away')+'\'s away-ground '+unitPlural()+' against its various opponents — to model all the ways this specific matchup could play out.';
+
+    renderFixtureSelect(); // the dropdown's option label is derived from team names
   }
 
   [ [homeTeamNameInput,'home'], [awayTeamNameInput,'away'] ].forEach(([input, team])=>{
@@ -1149,7 +1300,7 @@
     document.getElementById('combinedLogCount').textContent = '(' + pairs.length + ')';
     if(pairs.length===0){ block.style.display='none'; return; }
     block.style.display='block';
-    let html = '<table class="matches"><thead><tr><th>#</th><th>'+teamDisplay('home')+' HT</th><th>'+teamDisplay('home')+' FT</th><th>'+teamDisplay('away')+' HT</th><th>'+teamDisplay('away')+' FT</th><th>Comb. HT</th><th>Comb. FT</th></tr></thead><tbody>';
+    let html = '<table class="matches"><thead><tr><th>#</th><th>'+escapeHtml(teamDisplay('home'))+' HT</th><th>'+escapeHtml(teamDisplay('home'))+' FT</th><th>'+escapeHtml(teamDisplay('away'))+' HT</th><th>'+escapeHtml(teamDisplay('away'))+' FT</th><th>Comb. HT</th><th>Comb. FT</th></tr></thead><tbody>';
     pairs.forEach((p,i)=>{
       const combHt = (p.home.ht!=null && p.away.ht!=null) ? (p.home.ht+p.away.ht) : null;
       const combFt = (p.home.ft!=null && p.away.ft!=null) ? (p.home.ft+p.away.ft) : null;
