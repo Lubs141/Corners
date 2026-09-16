@@ -236,6 +236,33 @@
   .half-insight .hi-track{height:8px; border-radius:5px; background:#dfe8e0; overflow:hidden;}
   .half-insight .hi-fill{height:100%; border-radius:5px;}
   .odds-line{font-size:11px; font-weight:800; margin-bottom:3px;}
+
+  .fav-toggle{
+    display:inline-flex; align-items:center; gap:4px; background:none; border:none; padding:0;
+    margin:0 0 3px; cursor:pointer; font:inherit;
+  }
+  .fav-toggle .fav-star{ font-size:12px; color:#cdbf9a; line-height:1; transition:color .15s, transform .1s; }
+  .fav-toggle:hover .fav-star{ color:var(--flag-dim); }
+  .fav-toggle.active .fav-star{ color:var(--flag); }
+  .fav-toggle:active .fav-star{ transform:scale(1.25); }
+
+  .favorites-panel{ padding-top:8px; }
+  .fav-item{
+    display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+    padding:10px 4px; border-bottom:1px solid var(--line-soft);
+  }
+  .fav-item:last-child{ border-bottom:none; }
+  .fav-item-main{ display:flex; align-items:flex-start; gap:8px; min-width:0; }
+  .fav-item-main .fav-star-ico{ color:var(--flag); font-size:14px; flex-shrink:0; margin-top:2px; }
+  .fav-item-text{ min-width:0; }
+  .fav-item-title{ font-size:13.5px; font-weight:700; color:var(--ink); }
+  .fav-item-title .fav-item-type{ font-size:10px; font-weight:700; color:#8b978f; text-transform:uppercase; letter-spacing:.03em; margin-left:4px; }
+  .fav-item-sub{ font-size:12px; color:#6f7b73; margin-top:2px; }
+  .fav-item-right{ display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  .fav-item-odds{ font-family:'Barlow Condensed', sans-serif; font-size:17px; font-weight:800; }
+  .fav-item-count{ font-size:11.5px; color:#8b978f; white-space:nowrap; }
+  .fav-remove{ background:none; border:none; color:#b1483a; cursor:pointer; font-size:14px; padding:4px; line-height:1; }
+  .fav-remove:hover{ opacity:0.7; }
   .threshold-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;}
   .threshold-row label{font-size:13px; font-weight:600; color:#5b6a60;}
   .threshold-row input{
@@ -396,6 +423,21 @@
     <div class="matchup-field">
       <label for="awayTeamNameInput">Away team <span class="role-hint">— away form</span></label>
       <input type="text" id="awayTeamNameInput" placeholder="e.g. Chelsea" maxlength="40" autocomplete="off" enterkeyhint="done">
+    </div>
+  </div>
+
+  <div class="panel favorites-panel" id="favoritesPanel" style="display:none; margin-bottom:20px; padding:8px 20px;">
+    <div class="logblock" id="favoritesLogBlock">
+      <div class="logblock-header" data-toggle="favorites">
+        <span class="dot" style="background:var(--flag)"></span>
+        <h3>⭐ Favorite odds</h3>
+        <span class="count" id="favoritesCount">(0)</span>
+        <span class="spacer"></span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="logblock-body">
+        <div id="favoritesList"></div>
+      </div>
     </div>
   </div>
 
@@ -605,7 +647,8 @@
   const state = {
     statType: 'corners', // 'corners' | 'goals' | 'cards'
     data: { corners: freshTypeState('corners'), goals: freshTypeState('goals'), cards: freshTypeState('cards') },
-    collapsed: { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false }
+    collapsed: { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false, favorites:false },
+    favorites: [] // saved odds snapshots — global across every fixture and stat type
   };
 
   const UNIT_WORDS = {
@@ -748,6 +791,7 @@
           state.statType = 'corners';
         }
         if(parsed.collapsed) state.collapsed = Object.assign(state.collapsed, parsed.collapsed);
+        if(Array.isArray(parsed.favorites)) state.favorites = parsed.favorites.filter(f=>f && typeof f.key==='string');
       }
     }catch(e){
       console.warn('Could not read saved matches, starting fresh.', e);
@@ -758,7 +802,7 @@
 
   function saveState(){
     try{
-      const payload = { statType: state.statType, data: state.data, collapsed: state.collapsed };
+      const payload = { statType: state.statType, data: state.data, collapsed: state.collapsed, favorites: state.favorites };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       flashSaved();
     }catch(e){
@@ -942,7 +986,7 @@
     if(!ok) return;
     c.home = [];
     c.away = [];
-    state.collapsed = { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false };
+    state.collapsed = { home:false, away:false, combined:false, logsection:false, homeInsight:false, awayInsight:false, combinedInsight:false, favorites:false };
     renderAll();
     saveState();
     saveIndicator.classList.add('show');
@@ -1127,6 +1171,7 @@
     document.getElementById('homeHalfInsight').classList.toggle('collapsed', !!state.collapsed.homeInsight);
     document.getElementById('awayHalfInsight').classList.toggle('collapsed', !!state.collapsed.awayInsight);
     document.getElementById('combinedHalfInsight').classList.toggle('collapsed', !!state.collapsed.combinedInsight);
+    document.getElementById('favoritesLogBlock').classList.toggle('collapsed', !!state.collapsed.favorites);
   }
 
   // ---------- stats helpers ----------
@@ -1180,36 +1225,123 @@
     if(o<=2.2) return '#c98a2d';
     return '#c0553a';
   }
-  function renderThresholdTable(tableId, list, htLine, ftLine, sndLine){
+  function favKeyFor(scope, periodId, side, line){
+    return [state.statType, cur().id, scope, periodId, side, line].join('|');
+  }
+  function oddsCellHtml(scope, periodId, periodLabel, side, line, oddsVal, count, total){
+    if(oddsVal===null){
+      // nothing occurred yet for this outcome — no odds to favourite
+      return '<div class="odds-line" style="color:'+oddsColor(oddsVal)+'">True odds —</div>'+count+' / '+total;
+    }
+    const key = favKeyFor(scope, periodId, side, line);
+    const already = state.favorites.some(f=>f.key===key);
+    const payload = {
+      key: key,
+      statType: state.statType,
+      fixtureId: cur().id,
+      fixtureLabel: fixtureLabel(cur()),
+      scope: scope,
+      scopeLabel: scope==='combined' ? 'Match combined' : teamDisplayWithRole(scope),
+      period: periodId,
+      periodLabel: periodLabel,
+      line: line,
+      side: side,
+      odds: oddsVal,
+      countStr: count+'/'+total
+    };
+    const sideCap = side==='over' ? 'Over' : 'Under';
+    return '<button type="button" class="fav-toggle'+(already?' active':'')+'" data-fav-key="'+escapeHtml(key)+'" data-fav-payload=\''+escapeHtml(JSON.stringify(payload))+'\' title="'+(already?'Remove from favourites':'Tap to save this '+sideCap+' odds as a favourite')+'">'
+      + '<span class="fav-star">'+(already?'★':'☆')+'</span>'
+      + '<span class="odds-line" style="color:'+oddsColor(oddsVal)+'">True odds '+fmtOdds(oddsVal)+'</span>'
+      + '</button>'+count+' / '+total;
+  }
+  function renderThresholdTable(tableId, list, htLine, ftLine, sndLine, scope){
     const table = document.getElementById(tableId);
     if(list.length===0){ table.innerHTML=''; return; }
     const hts = list.map(m=>m.ht).filter(v=>v!=null);
     const fts = list.map(m=>m.ft).filter(v=>v!=null);
     const snds = list.filter(m=>m.ht!=null && m.ft!=null).map(m=>m.ft-m.ht);
     const rows = [
-      {label:'Half-time · line '+htLine, stats: thresholdStats(hts, htLine)},
-      {label:'2nd-half · line '+sndLine, stats: thresholdStats(snds, sndLine)},
-      {label:'Full-time · line '+ftLine, stats: thresholdStats(fts, ftLine)}
+      {periodId:'ht',  periodLabel:'Half-time', line:htLine,  stats: thresholdStats(hts, htLine)},
+      {periodId:'snd', periodLabel:'2nd-half',  line:sndLine, stats: thresholdStats(snds, sndLine)},
+      {periodId:'ft',  periodLabel:'Full-time', line:ftLine,  stats: thresholdStats(fts, ftLine)}
     ];
     let html = '<thead><tr><th>Period</th><th>Over</th><th>Under</th><th>Push</th><th>Over %</th></tr></thead><tbody>';
     rows.forEach(r=>{
+      const rowLabel = r.periodLabel+' · line '+r.line;
       if(r.stats.total===0){
-        html += '<tr><td class="period">'+r.label+'</td><td colspan="4" style="color:#8b978f; font-style:italic;">No matching data logged yet</td></tr>';
+        html += '<tr><td class="period">'+rowLabel+'</td><td colspan="4" style="color:#8b978f; font-style:italic;">No matching data logged yet</td></tr>';
         return;
       }
       const decidable = r.stats.over + r.stats.under; // excludes pushes
       const overOddsVal = trueOdds(r.stats.over, decidable);
       const underOddsVal = trueOdds(r.stats.under, decidable);
       html += '<tr>'
-        + '<td class="period">'+r.label+'</td>'
-        + '<td><div class="odds-line" style="color:'+oddsColor(overOddsVal)+'">True odds '+fmtOdds(overOddsVal)+'</div>'+r.stats.over+' / '+r.stats.total+'</td>'
-        + '<td><div class="odds-line" style="color:'+oddsColor(underOddsVal)+'">True odds '+fmtOdds(underOddsVal)+'</div>'+r.stats.under+' / '+r.stats.total+'</td>'
+        + '<td class="period">'+rowLabel+'</td>'
+        + '<td>'+oddsCellHtml(scope, r.periodId, r.periodLabel, 'over', r.line, overOddsVal, r.stats.over, r.stats.total)+'</td>'
+        + '<td>'+oddsCellHtml(scope, r.periodId, r.periodLabel, 'under', r.line, underOddsVal, r.stats.under, r.stats.total)+'</td>'
         + '<td>'+r.stats.push+'</td>'
         + '<td class="bar-cell"><div style="display:flex;align-items:center;gap:8px;"><div class="bar-track" style="flex:1;"><div class="bar-fill" style="width:'+r.stats.overPct+'%;"></div></div><span>'+r.stats.overPct+'%</span></div></td>'
         + '</tr>';
     });
     html += '</tbody>';
     table.innerHTML = html;
+    table.querySelectorAll('.fav-toggle').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const key = btn.dataset.favKey;
+        const idx = state.favorites.findIndex(f=>f.key===key);
+        if(idx>=0){
+          state.favorites.splice(idx,1);
+        } else {
+          let payload;
+          try{ payload = JSON.parse(btn.dataset.favPayload); }catch(e){ return; }
+          payload.savedAt = Date.now();
+          state.favorites.unshift(payload);
+        }
+        renderAll();
+        saveState();
+      });
+    });
+  }
+
+  // ---------- favourite odds panel ----------
+  function renderFavorites(){
+    const panel = document.getElementById('favoritesPanel');
+    const list = document.getElementById('favoritesList');
+    document.getElementById('favoritesCount').textContent = '(' + state.favorites.length + ')';
+    if(state.favorites.length===0){
+      panel.style.display = 'none';
+      list.innerHTML = '';
+      return;
+    }
+    panel.style.display = 'block';
+    list.innerHTML = state.favorites.map(f=>{
+      const sideCap = f.side==='over' ? 'Over' : 'Under';
+      const typeLabel = (UNIT_WORDS[f.statType] || UNIT_WORDS.corners).pluralCap;
+      return '<div class="fav-item">'
+        + '<div class="fav-item-main">'
+          + '<span class="fav-star-ico">★</span>'
+          + '<div class="fav-item-text">'
+            + '<div class="fav-item-title">'+escapeHtml(f.fixtureLabel)+' <span class="fav-item-type">'+escapeHtml(typeLabel)+'</span></div>'
+            + '<div class="fav-item-sub">'+escapeHtml(f.scopeLabel)+' · '+escapeHtml(f.periodLabel)+' · '+sideCap+' '+f.line+'</div>'
+          + '</div>'
+        + '</div>'
+        + '<div class="fav-item-right">'
+          + '<div class="fav-item-odds" style="color:'+oddsColor(f.odds)+'">'+fmtOdds(f.odds)+'</div>'
+          + '<div class="fav-item-count">'+escapeHtml(f.countStr)+'</div>'
+          + '<button type="button" class="fav-remove" data-remove-fav="'+escapeHtml(f.key)+'" title="Remove">✕</button>'
+        + '</div>'
+      + '</div>';
+    }).join('');
+    list.querySelectorAll('.fav-remove').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const key = btn.dataset.removeFav;
+        const idx = state.favorites.findIndex(f=>f.key===key);
+        if(idx>=0) state.favorites.splice(idx,1);
+        renderAll(); // resync star state on any matching cell currently visible, plus re-render this list
+        saveState();
+      });
+    });
   }
 
   // ---------- half-by-half comparison (which half produced most corners) ----------
@@ -1352,7 +1484,7 @@
           : null);
         renderCards('homeCards', buildScorecards(c.home));
         renderHalfInsight('homeHalfInsight', c.home);
-        renderThresholdTable('homeThresholdTable', c.home, c.lines.homeHt, c.lines.homeFt, c.lines.homeSnd);
+        renderThresholdTable('homeThresholdTable', c.home, c.lines.homeHt, c.lines.homeFt, c.lines.homeSnd, 'home');
       }
       if(hasAway){
         document.getElementById('awayN').textContent = c.away.length + ' match'+(c.away.length===1?'':'es');
@@ -1361,7 +1493,7 @@
           : null);
         renderCards('awayCards', buildScorecards(c.away));
         renderHalfInsight('awayHalfInsight', c.away);
-        renderThresholdTable('awayThresholdTable', c.away, c.lines.awayHt, c.lines.awayFt, c.lines.awaySnd);
+        renderThresholdTable('awayThresholdTable', c.away, c.lines.awayHt, c.lines.awayFt, c.lines.awaySnd, 'away');
       }
     }
 
@@ -1394,7 +1526,7 @@
         : null);
       renderCards('combinedCards', buildScorecards(combinedList));
       renderHalfInsight('combinedHalfInsight', combinedList, 'scenarios');
-      renderThresholdTable('combinedThresholdTable', combinedList, c.lines.combHt, c.lines.combFt, c.lines.combSnd);
+      renderThresholdTable('combinedThresholdTable', combinedList, c.lines.combHt, c.lines.combFt, c.lines.combSnd, 'combined');
       renderCombinedLogTable(pairs);
     } else {
       combinedBlock.style.display='none';
@@ -1404,6 +1536,7 @@
 
     renderTeamLogTable('home');
     renderTeamLogTable('away');
+    renderFavorites();
     applyCollapsedClasses();
   }
 
