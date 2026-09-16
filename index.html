@@ -297,6 +297,24 @@
   .log-empty{padding:20px 10px; font-size:13px; color:#9aa59d; text-align:center;}
   .tag{display:inline-block; padding:2px 8px; border-radius:100px; font-size:11px; font-weight:700;}
 
+  .matchup-bar{
+    display:flex; align-items:flex-end; gap:14px; background:#fff; border:1px solid var(--line-soft);
+    border-radius:10px; padding:14px 16px; margin-bottom:20px; flex-wrap:wrap;
+  }
+  .matchup-field{flex:1; min-width:150px;}
+  .matchup-field label{display:block; font-size:12px; font-weight:700; color:#5b6a60; margin-bottom:6px;}
+  .matchup-field label .role-hint{font-weight:600; color:#9aa59d; text-transform:none;}
+  .matchup-field input{
+    width:100%; padding:9px 11px; border:1.5px solid var(--line-soft); border-radius:7px; font-size:14.5px;
+    font-family:'Inter', sans-serif; color:var(--ink);
+  }
+  .matchup-field input:focus{outline:none; border-color:var(--flag);}
+  .matchup-vs{
+    font-family:'Barlow Condensed', sans-serif; font-weight:800; font-size:15px; color:#9aa59d;
+    padding-bottom:11px; flex-shrink:0;
+  }
+  @media (max-width:520px){ .matchup-vs{ display:none; } }
+
   .sample-warning{
     display:none; align-items:flex-start; gap:8px;
     background:#fdf5e6; border:1px solid #f0dfb0; border-radius:8px;
@@ -335,6 +353,18 @@
     </div>
   </header>
 
+  <div class="matchup-bar">
+    <div class="matchup-field">
+      <label for="homeTeamNameInput">Home team <span class="role-hint">— home form</span></label>
+      <input type="text" id="homeTeamNameInput" placeholder="e.g. Arsenal" maxlength="40" autocomplete="off" enterkeyhint="next">
+    </div>
+    <div class="matchup-vs">vs</div>
+    <div class="matchup-field">
+      <label for="awayTeamNameInput">Away team <span class="role-hint">— away form</span></label>
+      <input type="text" id="awayTeamNameInput" placeholder="e.g. Chelsea" maxlength="40" autocomplete="off" enterkeyhint="done">
+    </div>
+  </div>
+
   <!-- ANALYSIS PANEL -->
   <div class="panel analysis" id="analysisPanel">
       <div class="empty-state" id="emptyState">
@@ -347,7 +377,7 @@
 
         <!-- HOME -->
         <div id="homeBlock">
-          <div class="section-heading"><span class="dot" style="background:var(--home-blue)"></span><h2>Home team</h2><span class="n" id="homeN"></span></div>
+          <div class="section-heading"><span class="dot" style="background:var(--home-blue)"></span><h2 id="homeSectionTitle">Home team</h2><span class="n" id="homeN"></span></div>
           <div class="sample-warning" id="homeSampleWarning"></div>
           <div class="scorecards" id="homeCards"></div>
           <div class="half-insight" id="homeHalfInsight">
@@ -369,7 +399,7 @@
 
         <!-- AWAY -->
         <div id="awayBlock">
-          <div class="section-heading"><span class="dot" style="background:var(--away-red)"></span><h2>Away team</h2><span class="n" id="awayN"></span></div>
+          <div class="section-heading"><span class="dot" style="background:var(--away-red)"></span><h2 id="awaySectionTitle">Away team</h2><span class="n" id="awayN"></span></div>
           <div class="sample-warning" id="awaySampleWarning"></div>
           <div class="scorecards" id="awayCards"></div>
           <div class="half-insight" id="awayHalfInsight">
@@ -391,7 +421,7 @@
 
         <!-- COMBINED -->
         <div id="combinedBlock" style="display:none;">
-          <div class="section-heading"><span class="dot" style="background:var(--flag)"></span><h2>Match combined</h2><span class="n" id="combinedN"></span></div>
+          <div class="section-heading"><span class="dot" style="background:var(--flag)"></span><h2 id="combinedSectionTitle">Match combined</h2><span class="n" id="combinedN"></span></div>
           <p class="panel-sub" id="combinedSub" style="margin-top:-8px;">Every home fixture is combined with every away fixture — Home's home-ground record against its various opponents, matched against Away's away-ground record against its various opponents — to model all the ways this specific matchup could play out.</p>
           <p class="method-note">This treats Home's home form and Away's away form as statistically independent of each other — the same simplifying assumption standard scoreline models use. It's a reasonable starting point for a projection, not a guarantee of how the match will actually unfold.</p>
           <div class="sample-warning" id="combinedSampleWarning"></div>
@@ -460,7 +490,7 @@
       <div class="logblock" id="homeLogBlock">
         <div class="logblock-header" data-toggle="home">
           <span class="dot" style="background:var(--home-blue)"></span>
-          <h3>Home matches</h3>
+          <h3 id="homeLogTitle">Home matches</h3>
           <span class="count" id="homeLogCount">(0)</span>
           <span class="spacer"></span>
           <span class="clear-link" data-clear="home">Clear</span>
@@ -474,7 +504,7 @@
       <div class="logblock" id="awayLogBlock">
         <div class="logblock-header" data-toggle="away">
           <span class="dot" style="background:var(--away-red)"></span>
-          <h3>Away matches</h3>
+          <h3 id="awayLogTitle">Away matches</h3>
           <span class="count" id="awayLogCount">(0)</span>
           <span class="spacer"></span>
           <span class="clear-link" data-clear="away">Clear</span>
@@ -488,7 +518,7 @@
       <div class="logblock" id="combinedLogBlock" style="display:none;">
         <div class="logblock-header" data-toggle="combined">
           <span class="dot" style="background:var(--flag)"></span>
-          <h3>Combined matches</h3>
+          <h3 id="combinedLogTitle">Combined matches</h3>
           <span class="count" id="combinedLogCount">(0)</span>
           <span class="spacer"></span>
           <span class="chevron">▾</span>
@@ -514,7 +544,7 @@
   };
 
   function freshTypeState(type){
-    return { activeTeam:'home', entryMode:'both', home:[], away:[], lines: Object.assign({}, DEFAULT_LINES[type]) };
+    return { activeTeam:'home', entryMode:'both', home:[], away:[], lines: Object.assign({}, DEFAULT_LINES[type]), teamNames: { home:'', away:'' } };
   }
 
   const state = {
@@ -536,6 +566,23 @@
   function unitSingular(){ return UNIT_WORDS[state.statType].singular; }
   function maxPlausible(){ return MAX_PLAUSIBLE[state.statType]; }
 
+  // Team names are kept per stat type — the same two clubs might be tracked
+  // under different names/contexts across Corners, Goals and Cards separately,
+  // so each lives inside its own type's data bucket (see freshTypeState).
+  function teamDisplay(team){
+    const name = (cur().teamNames[team]||'').trim();
+    return name || (team==='home' ? 'Home' : 'Away');
+  }
+  function teamDisplayWithRole(team){
+    const name = (cur().teamNames[team]||'').trim();
+    const role = team==='home' ? 'Home form' : 'Away form';
+    return name ? (name+' — '+role) : (team==='home' ? 'Home team' : 'Away team');
+  }
+  function bothTeamsNamed(){
+    const t = cur().teamNames;
+    return !!(t.home||'').trim() && !!(t.away||'').trim();
+  }
+
   const LINE_FIELDS = [
     {id:'homeHtLine', key:'homeHt'}, {id:'homeSndLine', key:'homeSnd'}, {id:'homeFtLine', key:'homeFt'},
     {id:'awayHtLine', key:'awayHt'}, {id:'awaySndLine', key:'awaySnd'}, {id:'awayFtLine', key:'awayFt'},
@@ -550,6 +597,8 @@
   const totalPillCount = document.getElementById('totalPillCount');
   const saveIndicator = document.getElementById('saveIndicator');
   const resetAllBtn = document.getElementById('resetAllBtn');
+  const homeTeamNameInput = document.getElementById('homeTeamNameInput');
+  const awayTeamNameInput = document.getElementById('awayTeamNameInput');
 
   const statTypeSelect = document.getElementById('statTypeSelect');
   const brandTitle = document.getElementById('brandTitle');
@@ -576,8 +625,19 @@
               if(src.activeTeam==='home' || src.activeTeam==='away') state.data[t].activeTeam = src.activeTeam;
               if(src.entryMode==='both' || src.entryMode==='htOnly' || src.entryMode==='ftOnly') state.data[t].entryMode = src.entryMode;
               if(src.lines) state.data[t].lines = Object.assign({}, state.data[t].lines, src.lines);
+              if(src.teamNames){
+                if(typeof src.teamNames.home === 'string') state.data[t].teamNames.home = src.teamNames.home;
+                if(typeof src.teamNames.away === 'string') state.data[t].teamNames.away = src.teamNames.away;
+              }
             }
           });
+          // legacy: a brief earlier version stored one shared teamNames at the top level —
+          // fold that into Corners only, so nothing is silently lost, but it no longer
+          // applies to Goals/Cards going forward.
+          if(parsed.teamNames && !parsed.data.corners.teamNames){
+            if(typeof parsed.teamNames.home === 'string') state.data.corners.teamNames.home = parsed.teamNames.home;
+            if(typeof parsed.teamNames.away === 'string') state.data.corners.teamNames.away = parsed.teamNames.away;
+          }
         } else if(Array.isArray(parsed.home) || Array.isArray(parsed.away)){
           // legacy single-mode format — migrate into corners
           if(Array.isArray(parsed.home)) state.data.corners.home = parsed.home;
@@ -627,7 +687,6 @@
     document.title = brandTitle.textContent + ' — ' + unitPluralCap() + ' Analysis Tool';
 
     emptyStateText.textContent = 'Add a few matches on the left — half-time and full-time '+unitPlural()+' counts — and the breakdown for over/under results, team averages and combined totals will build up here.';
-    combinedSub.textContent = 'Every home fixture is combined with every away fixture — Home\'s home-ground '+unitPlural()+' against its various opponents, matched against Away\'s away-ground '+unitPlural()+' against its various opponents — to model all the ways this specific matchup could play out.';
     entryPanelSub.textContent = 'Choose the team you\'re recording '+unitPlural()+' for, then enter that team\'s '+unitPlural()+' at half-time and full-time.';
     entryHint.textContent = 'FT '+unitPlural()+' is the total for the whole match. The tool works out second-half '+unitPlural()+' as FT minus HT automatically. The full list of everything you\'ve entered is at the bottom of the page.';
 
@@ -637,14 +696,64 @@
     document.querySelectorAll('.team-toggle button').forEach(b=>{
       b.classList.toggle('active', b.dataset.team === c.activeTeam);
     });
-    const lbl = c.activeTeam === 'home' ? 'Home' : 'Away';
-    htLabel.textContent = lbl + ' HT ' + unitPlural();
-    ftLabel.textContent = lbl + ' FT ' + unitPlural();
+    homeTeamNameInput.value = c.teamNames.home;
+    awayTeamNameInput.value = c.teamNames.away;
+    refreshTeamLabels();
 
     LINE_FIELDS.forEach(f=>{ document.getElementById(f.id).value = c.lines[f.key]; });
     applyEntryMode();
     clearEntryError();
   }
+
+  // ---------- team names: propagate into every label that references Home/Away ----------
+  function refreshTeamLabels(){
+    const homeBtn = document.querySelector('.team-toggle button[data-team="home"]');
+    const awayBtn = document.querySelector('.team-toggle button[data-team="away"]');
+    if(homeBtn) homeBtn.textContent = teamDisplayWithRole('home');
+    if(awayBtn) awayBtn.textContent = teamDisplayWithRole('away');
+
+    document.getElementById('homeSectionTitle').textContent = teamDisplayWithRole('home');
+    document.getElementById('awaySectionTitle').textContent = teamDisplayWithRole('away');
+    document.getElementById('combinedSectionTitle').textContent = bothTeamsNamed()
+      ? (teamDisplay('home')+' vs '+teamDisplay('away'))
+      : 'Match combined';
+
+    document.getElementById('homeLogTitle').textContent = teamDisplay('home') + ' matches';
+    document.getElementById('awayLogTitle').textContent = teamDisplay('away') + ' matches';
+    document.getElementById('combinedLogTitle').textContent = bothTeamsNamed()
+      ? (teamDisplay('home')+' vs '+teamDisplay('away')+' — combined')
+      : 'Combined matches';
+
+    const activeTeam = cur().activeTeam;
+    const lbl = teamDisplay(activeTeam);
+    htLabel.textContent = lbl + ' HT ' + unitPlural();
+    ftLabel.textContent = lbl + ' FT ' + unitPlural();
+
+    combinedSub.textContent = 'Every '+teamDisplay('home')+' fixture is combined with every '+teamDisplay('away')+' fixture — '
+      +teamDisplay('home')+'\'s home-ground '+unitPlural()+' against its various opponents, matched against '
+      +teamDisplay('away')+'\'s away-ground '+unitPlural()+' against its various opponents — to model all the ways this specific matchup could play out.';
+  }
+
+  [ [homeTeamNameInput,'home'], [awayTeamNameInput,'away'] ].forEach(([input, team])=>{
+    input.addEventListener('input', ()=>{
+      cur().teamNames[team] = input.value;
+      refreshTeamLabels();
+      renderAll(); // log-table & combined-table headers embed team names too
+      saveState();
+    });
+  });
+  homeTeamNameInput.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      e.preventDefault();
+      awayTeamNameInput.focus(); // advance keyboard to the next field ("Next")
+    }
+  });
+  awayTeamNameInput.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      e.preventDefault();
+      awayTeamNameInput.blur(); // dismiss keyboard ("Done") once both names are in
+    }
+  });
 
   // ---------- switching between Both / HT-only / FT-only entry ----------
   function applyEntryMode(){
@@ -678,7 +787,7 @@
     const c = cur();
     if(c.home.length===0 && c.away.length===0) return;
     const label = unitPlural();
-    const ok = confirm('Reset all logged '+label+' matches? This clears the '+label+' data for both home and away teams and can\'t be undone.');
+    const ok = confirm('Reset all logged '+label+' matches? This clears the '+label+' data for both '+teamDisplay('home')+' and '+teamDisplay('away')+' and can\'t be undone.');
     if(!ok) return;
     c.home = [];
     c.away = [];
@@ -704,9 +813,7 @@
       document.querySelectorAll('.team-toggle button').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       cur().activeTeam = btn.dataset.team;
-      const label = cur().activeTeam === 'home' ? 'Home' : 'Away';
-      htLabel.textContent = label + ' HT ' + unitPlural();
-      ftLabel.textContent = label + ' FT ' + unitPlural();
+      refreshTeamLabels();
       clearEntryError();
       saveState(); // persist active team selection
     });
@@ -854,7 +961,7 @@
       const team = link.dataset.clear;
       const c = cur();
       if(c[team].length===0) return;
-      if(confirm('Clear all logged ' + team + ' ' + unitPlural() + ' matches?')){
+      if(confirm('Clear all logged ' + teamDisplay(team) + ' ' + unitPlural() + ' matches?')){
         c[team] = [];
         renderAll();
         saveState();
@@ -1042,7 +1149,7 @@
     document.getElementById('combinedLogCount').textContent = '(' + pairs.length + ')';
     if(pairs.length===0){ block.style.display='none'; return; }
     block.style.display='block';
-    let html = '<table class="matches"><thead><tr><th>#</th><th>Home HT</th><th>Home FT</th><th>Away HT</th><th>Away FT</th><th>Comb. HT</th><th>Comb. FT</th></tr></thead><tbody>';
+    let html = '<table class="matches"><thead><tr><th>#</th><th>'+teamDisplay('home')+' HT</th><th>'+teamDisplay('home')+' FT</th><th>'+teamDisplay('away')+' HT</th><th>'+teamDisplay('away')+' FT</th><th>Comb. HT</th><th>Comb. FT</th></tr></thead><tbody>';
     pairs.forEach((p,i)=>{
       const combHt = (p.home.ht!=null && p.away.ht!=null) ? (p.home.ht+p.away.ht) : null;
       const combFt = (p.home.ft!=null && p.away.ft!=null) ? (p.home.ft+p.away.ft) : null;
