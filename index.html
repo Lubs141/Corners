@@ -3146,7 +3146,13 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 <select id="pointDiffExactModeSelect" onchange="onPointDiffModeChange()" style="padding: 10px; margin-bottom: 8px;" title="What the exact difference measures">
 <option value="leader">Points behind the league leader</option>
 <option value="fixture">Points between the fixture's two teams</option>
-</select> <input id="pointDiffFilterInput" min="0" oninput="filterTeamsTable()" placeholder="Points behind leader" style="padding: 10px;" title="Filter teams with exact point difference from the top team in their league" type="number" /></div>
+</select>
+<div id="pdExactDirRow" style="display: none; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 12px;" title="Which team of the fixture is ahead on points (one at a time)">
+<label style="display: flex; align-items: center; gap: 4px;" title="Only fixtures where the extracted team has MORE points than its opponent (level on points: the higher position counts)"><input type="checkbox" id="pdExactDirAbove" onchange="onPointDiffDirChange('exact', 'above')"> ⬆️ Extracted team above</label>
+<label style="display: flex; align-items: center; gap: 4px;" title="Only fixtures where the extracted team has FEWER points than its opponent (level on points: the lower position counts)"><input type="checkbox" id="pdExactDirBelow" onchange="onPointDiffDirChange('exact', 'below')"> ⬇️ Extracted team below</label>
+<label style="display: flex; align-items: center; gap: 4px;" title="Either team can be ahead (the plain gap between the two teams)"><input type="checkbox" id="pdExactDirEither" checked onchange="onPointDiffDirChange('exact', 'either')"> ↔️ Either</label>
+</div>
+<input id="pointDiffFilterInput" min="0" oninput="filterTeamsTable()" placeholder="Points behind leader" style="padding: 10px;" title="Filter teams with exact point difference from the top team in their league" type="number" /></div>
 <!-- NEW: Point Difference Range Filter -->
 
 <div class="filter-group"><label class="filter-label" for="minPointDiffFilterInput">📊 Point Difference Range:</label>
@@ -3154,6 +3160,11 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 <option value="leader">Points behind the league leader</option>
 <option value="fixture">Points between the fixture's two teams</option>
 </select>
+<div id="pdRangeDirRow" style="display: none; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 12px;" title="Which team of the fixture is ahead on points (one at a time)">
+<label style="display: flex; align-items: center; gap: 4px;" title="Only fixtures where the extracted team has MORE points than its opponent (level on points: the higher position counts)"><input type="checkbox" id="pdRangeDirAbove" onchange="onPointDiffDirChange('range', 'above')"> ⬆️ Extracted team above</label>
+<label style="display: flex; align-items: center; gap: 4px;" title="Only fixtures where the extracted team has FEWER points than its opponent (level on points: the lower position counts)"><input type="checkbox" id="pdRangeDirBelow" onchange="onPointDiffDirChange('range', 'below')"> ⬇️ Extracted team below</label>
+<label style="display: flex; align-items: center; gap: 4px;" title="Either team can be ahead (the plain gap between the two teams)"><input type="checkbox" id="pdRangeDirEither" checked onchange="onPointDiffDirChange('range', 'either')"> ↔️ Either</label>
+</div>
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><input id="minPointDiffFilterInput" min="0" oninput="filterTeamsTable()" placeholder="Min points behind" style="padding: 10px;" title="Filter teams at least this many points behind their league leader" type="number" /> <input id="maxPointDiffFilterInput" min="0" oninput="filterTeamsTable()" placeholder="Max points behind" style="padding: 10px;" title="Filter teams at most this many points behind their league leader" type="number" /></div>
 </div>
@@ -18374,7 +18385,7 @@ function displayOpponentPopup(opponentName, opponentData) {
         document.getElementById('pointDiffFilterInput').value = '';
         document.getElementById('minPointDiffFilterInput').value = '';
         document.getElementById('maxPointDiffFilterInput').value = '';
-        document.getElementById('pointDiffModeSelect').value = 'leader'; document.getElementById('pointDiffExactModeSelect').value = 'leader'; updatePointDiffPlaceholders();
+        document.getElementById('pointDiffModeSelect').value = 'leader'; document.getElementById('pointDiffExactModeSelect').value = 'leader'; resetPointDiffDirections(); updatePointDiffPlaceholders();
         document.getElementById('matchStatusFilter').value = '';
         document.getElementById('opponentMinPositionFilterInput').value = '';
         document.getElementById('opponentMaxPositionFilterInput').value = '';
@@ -18456,7 +18467,7 @@ function displayOpponentPopup(opponentName, opponentData) {
                         <th class="sortable-header" onclick="sortTable('betMarket')">Bet Market</th>
                         <th class="sortable-header" onclick="sortTable('opponent')">Opponent</th>
                         <th class="sortable-header" onclick="sortTable('opponentPosition')">Opponent Pos</th>
-                        <th class="sortable-header" onclick="sortTable('fixtureGap')" title="Points between this team and its opponent in the standings (the gap, whoever is ahead) - click to sort">Pts Gap (fixture)</th>
+                        <th class="sortable-header" onclick="sortTable('fixtureGap')" title="Points between this team and its opponent in the standings (▲ the team is above, ▼ below) - click to sort">Pts Gap (fixture)</th>
                         <th class="sortable-header" onclick="sortTable('teamOverUnder25')" title="${escAttr(tableMarketLabel)} (${tableMarketScope}), from the team's available match history — click to sort">Team ${tableMarketLabel}${showPercentages ? ' (%)' : ''}</th>
                         <th class="sortable-header" onclick="sortTable('oppOverUnder25')" title="${escAttr(tableMarketLabel)} (${tableMarketScope}), from the opponent's available match history — click to sort">Opp ${tableMarketLabel}${showPercentages ? ' (%)' : ''}</th>
                         <th class="sortable-header" onclick="sortTable('teamAvgGoals')" title="Average goals scored per league match, for the team — click to sort">Team Avg Goals</th>
@@ -18918,6 +18929,8 @@ function filterTeamsTable() {
     const maxPointDiffFilter = document.getElementById('maxPointDiffFilterInput').value;
     const pointDiffMode = (document.getElementById('pointDiffModeSelect') || {}).value === 'fixture' ? 'fixture' : 'leader';   // NEW
     const pointDiffExactMode = (document.getElementById('pointDiffExactModeSelect') || {}).value === 'fixture' ? 'fixture' : 'leader';
+    const pointDiffRangeDir = getPointDiffDirection('range');     // NEW: 'above' | 'below' | 'either' (fixture mode)
+    const pointDiffExactDir = getPointDiffDirection('exact');
     let pointDiffExactSkipped = 0;
     let pointDiffSkipped = 0;                                                                                                  // rows the fixture gap couldn't be worked out for
     const matchStatusFilter = document.getElementById('matchStatusFilter').value;
@@ -19081,9 +19094,9 @@ function filterTeamsTable() {
         if (pointDiffFilter !== '') {
             const exactDiff = parseInt(pointDiffFilter);
             if (pointDiffExactMode === 'fixture') {
-                const gap = fixturePointGap(team);                  // points between the two teams of the fixture
-                if (gap === null) pointDiffExactSkipped++;
-                matchesPointDiff = gap !== null && gap === exactDiff;
+                const info = fixturePointGapInfo(team);             // points between the two teams of the fixture
+                if (info === null) pointDiffExactSkipped++;
+                matchesPointDiff = info !== null && info.gap === exactDiff && (pointDiffExactDir === 'either' || info.side === pointDiffExactDir);
             } else {
                 const topPoints = topTeamPointsByCountry[team.country] || team.pts;
                 const pointDifference = topPoints - team.pts;
@@ -19096,14 +19109,16 @@ function filterTeamsTable() {
         if (minPointDiffFilter !== '' || maxPointDiffFilter !== '') {
             let pointDifference;
             if (pointDiffMode === 'fixture') {
-                pointDifference = fixturePointGap(team);          // points between the two teams of the fixture
+                const info = fixturePointGapInfo(team);           // points between the two teams of the fixture
+                pointDifference = info ? info.gap : null;
                 if (pointDifference === null) pointDiffSkipped++;
+                else if (pointDiffRangeDir !== 'either' && info.side !== pointDiffRangeDir) pointDifference = undefined;   // the other team is the one ahead
             } else {
                 const topPoints = topTeamPointsByCountry[team.country] || team.pts;
                 pointDifference = topPoints - team.pts;           // points behind the league leader
             }
-            if (pointDifference === null) {
-                matchesPointDiffRange = false;                    // can't tell, so it can't be said to be in range
+            if (pointDifference === null || pointDifference === undefined) {
+                matchesPointDiffRange = false;                    // can't tell / wrong side ahead, so it isn't in range
             } else {
                 if (minPointDiffFilter !== '') {
                     matchesPointDiffRange = matchesPointDiffRange && (pointDifference >= parseInt(minPointDiffFilter));
@@ -19170,7 +19185,7 @@ function filterTeamsTable() {
     console.log('Filter results:', `${filteredTeamsData.length} teams match all active filters`);
     
     // Show appropriate filter info boxes
-    updateFilterInfo(pointDiffFilter, countryFilter, topTeamPointsByCountry, { rangeActive: minPointDiffFilter !== '' || maxPointDiffFilter !== '', fallbackLeagues: leaderFallbackLeagues, mode: pointDiffMode, skipped: pointDiffSkipped, exactMode: pointDiffExactMode, exactSkipped: pointDiffExactSkipped });
+    updateFilterInfo(pointDiffFilter, countryFilter, topTeamPointsByCountry, { rangeActive: minPointDiffFilter !== '' || maxPointDiffFilter !== '', fallbackLeagues: leaderFallbackLeagues, mode: pointDiffMode, skipped: pointDiffSkipped, exactMode: pointDiffExactMode, exactSkipped: pointDiffExactSkipped, rangeDir: pointDiffRangeDir, exactDir: pointDiffExactDir });
     updateTimeRangeFilterInfo(timeStartFilter, timeEndFilter);
     updateDateRangeFilterInfo(dateStartFilterInput, dateEndFilterInput, 
         singleDateRadio.checked ? 'single' : 'range');
@@ -19201,14 +19216,16 @@ function updateFilterInfo(pointDiffFilter, countryFilter, topTeamPointsByCountry
     if (pointDiffFilter !== '' && extra && extra.exactMode === 'fixture') {
         filterInfoBox.style.display = 'block';
         const sk = extra.exactSkipped ? ` ${extra.exactSkipped} row${extra.exactSkipped === 1 ? '' : 's'} left out because the fixture has no opponent or a team's points are unknown.` : '';
-        if (filterInfoText) filterInfoText.textContent = `Showing fixtures where the two teams are exactly ${pointDiffFilter} points apart (the gap, whoever is ahead).${sk}`;
+        const dirTxt = extra.exactDir === 'above' ? 'with the extracted team ABOVE its opponent' : extra.exactDir === 'below' ? 'with the extracted team BELOW its opponent' : '(whoever is ahead)';
+        if (filterInfoText) filterInfoText.textContent = `Showing fixtures where the two teams are exactly ${pointDiffFilter} points apart ${dirTxt}.${sk}`;
         return;
     }
     if (pointDiffFilter === '' && extra && extra.rangeActive) {
         filterInfoBox.style.display = 'block';
         if (extra.mode === 'fixture') {
             const sk = extra.skipped ? ` ${extra.skipped} row${extra.skipped === 1 ? '' : 's'} left out because the fixture has no opponent or a team's points are unknown.` : '';
-            if (filterInfoText) filterInfoText.textContent = `Point Difference Range = points between the two teams of each fixture (the gap, whoever is ahead; the opponent's points come from the extracted teams or the full standings).${sk}`;
+            const dirTxt = extra.rangeDir === 'above' ? 'only where the extracted team is ABOVE its opponent' : extra.rangeDir === 'below' ? 'only where the extracted team is BELOW its opponent' : 'whoever is ahead';
+            if (filterInfoText) filterInfoText.textContent = `Point Difference Range = points between the two teams of each fixture (${dirTxt}; the opponent's points come from the extracted teams or the full standings).${sk}`;
         } else if (filterInfoText) {
             filterInfoText.textContent = `Point Difference Range = points behind the LEADER of each team's own league (leader taken from the full standings, even if the leader isn't extracted).${fallbackNote}`;
         }
@@ -19252,7 +19269,7 @@ function resetTableFilters() {
     document.getElementById('pointDiffFilterInput').value = '';
     document.getElementById('minPointDiffFilterInput').value = '';
     document.getElementById('maxPointDiffFilterInput').value = '';
-    document.getElementById('pointDiffModeSelect').value = 'leader'; document.getElementById('pointDiffExactModeSelect').value = 'leader'; updatePointDiffPlaceholders();
+    document.getElementById('pointDiffModeSelect').value = 'leader'; document.getElementById('pointDiffExactModeSelect').value = 'leader'; resetPointDiffDirections(); updatePointDiffPlaceholders();
     document.getElementById('matchStatusFilter').value = '';
     document.getElementById('opponentMinPositionFilterInput').value = '';
     document.getElementById('opponentMaxPositionFilterInput').value = '';
@@ -19615,6 +19632,50 @@ function teamPointsByName(name, country) {
     for (const t of same) { const r = t.rows.find(x => { const xn = String(x.name).toLowerCase(); return Math.min(xn.length, n.length) >= 4 && (xn.includes(n) || n.includes(xn)); }); if (r && num(r.points) !== null) return num(r.points); }
     return null;
 }
+function teamPositionByName(name, country) {   // league position of a team: extracted teams, else its place in the full standings
+    const n = String(name || '').toLowerCase().trim();
+    if (!n) return null;
+    const hit = extractedTeams.find(t => String(t.team).toLowerCase() === n && (!country || t.country === country)) || extractedTeams.find(t => String(t.team).toLowerCase() === n);
+    if (hit && Number.isFinite(Number(hit.pos))) return Number(hit.pos);
+    const rows = (completeApiStandings && completeApiStandings[country] && completeApiStandings[country].standings) || [];
+    const i = rows.findIndex(x => String(x.name).toLowerCase() === n);
+    return i >= 0 ? i + 1 : null;
+}
+// { gap, side } for the card's team against its opponent: gap = absolute points between them, side = whether the card's
+// team is 'above' (more points, or level with a better position), 'below', or 'level'. null when it can't be worked out.
+function fixturePointGapInfo(team) {
+    const gap = fixturePointGap(team);
+    if (gap === null) return null;
+    const own = Number(team.pts), opp = teamPointsByName(team.opponent, team.country);
+    let side = own > opp ? 'above' : own < opp ? 'below' : 'level';
+    if (side === 'level') {                                    // level on points: the league position decides
+        const ownPos = Number.isFinite(Number(team.pos)) ? Number(team.pos) : null, oppPos = teamPositionByName(team.opponent, team.country);
+        if (ownPos !== null && oppPos !== null && ownPos !== oppPos) side = ownPos < oppPos ? 'above' : 'below';
+    }
+    return { gap, side };
+}
+// the checked direction ('above' | 'below' | 'either') for the 'range' or 'exact' filter
+function getPointDiffDirection(group) {
+    const p = group === 'exact' ? 'pdExactDir' : 'pdRangeDir';
+    if ((document.getElementById(p + 'Above') || {}).checked) return 'above';
+    if ((document.getElementById(p + 'Below') || {}).checked) return 'below';
+    return 'either';
+}
+// the three boxes work like a choice of one: ticking one clears the others; clearing the ticked one goes back to Either
+function onPointDiffDirChange(group, which) {
+    const p = group === 'exact' ? 'pdExactDir' : 'pdRangeDir';
+    const boxes = { above: document.getElementById(p + 'Above'), below: document.getElementById(p + 'Below'), either: document.getElementById(p + 'Either') };
+    if (boxes[which].checked) Object.keys(boxes).forEach(k => { if (k !== which) boxes[k].checked = false; });
+    else if (!boxes.above.checked && !boxes.below.checked) boxes.either.checked = true;
+    else if (!boxes.above.checked && !boxes.below.checked && !boxes.either.checked) boxes.either.checked = true;
+    filterTeamsTable();
+}
+function resetPointDiffDirections() {
+    ['pdRangeDir', 'pdExactDir'].forEach(p => {
+        const a = document.getElementById(p + 'Above'), b = document.getElementById(p + 'Below'), e = document.getElementById(p + 'Either');
+        if (a) a.checked = false; if (b) b.checked = false; if (e) e.checked = true;
+    });
+}
 // absolute points gap between the card's team and its opponent; null when either side's points are unknown
 function fixturePointGap(team) {
     if (!team || !team.opponent) return null;
@@ -19624,6 +19685,9 @@ function fixturePointGap(team) {
     return opp === null ? null : Math.abs(own - opp);
 }
 function updatePointDiffPlaceholders() {   // labels follow the selected modes
+    const rangeRow = document.getElementById('pdRangeDirRow'), exactRow = document.getElementById('pdExactDirRow');
+    if (rangeRow) rangeRow.style.display = (document.getElementById('pointDiffModeSelect') || {}).value === 'fixture' ? 'flex' : 'none';
+    if (exactRow) exactRow.style.display = (document.getElementById('pointDiffExactModeSelect') || {}).value === 'fixture' ? 'flex' : 'none';
     const exactFixture = (document.getElementById('pointDiffExactModeSelect') || {}).value === 'fixture';
     const ex = document.getElementById('pointDiffFilterInput');
     if (ex) { ex.placeholder = exactFixture ? 'Points between teams' : 'Points behind leader'; ex.title = exactFixture ? 'Fixtures where the two teams are exactly this many points apart' : 'Filter teams with exact point difference from the top team in their league'; }
@@ -19637,7 +19701,10 @@ function fixtureGapCell(team) {
     if (gap === null) return '<span style="color:#6c757d;" title="No opponent, or a team\'s points are unknown">-</span>';
     const opp = teamPointsByName(team.opponent, team.country);
     const cls = gap <= 3 ? 'gap-close' : gap <= 9 ? 'gap-mid' : 'gap-far';
-    return `<span class="gap-badge ${cls}" title="${String(team.team).replace(/"/g, '&quot;')} ${team.pts} pts vs ${String(team.opponent).replace(/"/g, '&quot;')} ${opp} pts">${gap}</span>`;
+    const side = (fixturePointGapInfo(team) || {}).side;
+    const arrow = side === 'above' ? '▲ ' : side === 'below' ? '▼ ' : '';
+    const meaning = side === 'above' ? ' - the team is above its opponent' : side === 'below' ? ' - the team is below its opponent' : ' - level';
+    return `<span class="gap-badge ${cls}" title="${String(team.team).replace(/"/g, '&quot;')} ${team.pts} pts vs ${String(team.opponent).replace(/"/g, '&quot;')} ${opp} pts${meaning}">${arrow}${gap}</span>`;
 }
 function onPointDiffModeChange() {
     updatePointDiffPlaceholders();
