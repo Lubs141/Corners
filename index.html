@@ -21240,6 +21240,8 @@ function importBackupFile(file) {
 //   - a team from a league you haven't loaded gets a card under its competition (no table data)
 // =====================================================================
 const MBD_FOLD_KEY = 'soccer_betting_mbd_folded';
+const MBD_TZ_KEY = 'soccer_betting_mbd_timezone';
+let mbdZoneNote = '';
 let mbdFolded = false;
 try { mbdFolded = localStorage.getItem(MBD_FOLD_KEY) === '1'; } catch (e) { /* ignore */ }
 let mbdMatches = [];
@@ -21291,12 +21293,32 @@ async function mbdFetch(force) {
     mbdBusy = true;
     if (status) status.textContent = `⏳ Fetching matches for ${date}…`;
     try {
-        const response = await apiFetch(`${API_BASE_URL}/matches/list-by-date?sport_id=1&date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(APP_TIME_ZONE)}`, { method: 'GET', headers: API_HEADERS });
-        if (!response.ok) throw new Error(response.status === 429 ? 'API rate limit reached - try again in a moment' : `Request failed (${response.status})`);
+        // The API validates the time zone name. The tool's own zone ("Etc/GMT-3", UTC+3) may be refused with a 400, so other
+        // zones with the same UTC+3 offset are tried, then Europe/Berlin (the one in the API docs). The one that works is remembered.
+        let remembered = ''; try { remembered = localStorage.getItem(MBD_TZ_KEY) || ''; } catch (e) { /* ignore */ }
+        const zones = [remembered, 'Africa/Nairobi', 'Europe/Istanbul', APP_TIME_ZONE, 'Europe/Berlin'].filter((z, i, a) => z && a.indexOf(z) === i);
+        let response = null, usedZone = '', lastBody = '';
+        for (const tz of zones) {
+            if (status) status.textContent = `⏳ Fetching matches for ${date} (time zone ${tz})…`;
+            response = await apiFetch(`${API_BASE_URL}/matches/list-by-date?sport_id=1&date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(tz)}`, { method: 'GET', headers: API_HEADERS });
+            if (response.ok) { usedZone = tz; break; }
+            if (response.status !== 400 && response.status !== 422) break;     // not a parameter problem: stop trying
+            try { lastBody = (await response.text()).slice(0, 200); } catch (e) { lastBody = ''; }
+        }
+        if (!response.ok) {
+            const why = response.status === 429 ? 'API rate limit reached - try again in a moment'
+                : response.status === 401 || response.status === 403 ? `Request refused (${response.status}) - check your RapidAPI key and subscription`
+                : `Request failed (${response.status})${lastBody ? ': ' + lastBody : ''}`;
+            throw new Error(why);
+        }
+        try { localStorage.setItem(MBD_TZ_KEY, usedZone); } catch (e) { /* ignore */ }
         const payload = await response.json();
         const flat = v2FlattenMatchGroups(payload);
         if (!Array.isArray(flat)) throw new Error('Unexpected response from the API');
-        mbdCache[date] = flat.filter(m => m && m.match_id && m.home_team && m.away_team);
+        // a zone with another offset (the Berlin fallback) cuts the day at a different hour: keep what belongs to the chosen day in the tool's UTC+3 time
+        const sameOffset = usedZone !== 'Europe/Berlin';
+        mbdCache[date] = flat.filter(m => m && m.match_id && m.home_team && m.away_team && (sameOffset || toLocalDateString(new Date(m.timestamp * 1000)) === date));
+        mbdZoneNote = sameOffset ? '' : ' (fetched in the Europe/Berlin time zone, so matches in the first hours of this UTC+3 day may be missing)';
         mbdMatches = mbdCache[date];
         mbdFetchedDate = date;
         mbdSelection.clear(); mbdOpenGroups.clear();
@@ -21343,7 +21365,7 @@ function mbdRender() {
     const searching = !!((document.getElementById('mbdSearch') || {}).value || '').trim();
     const kinds = { cup: 0, league: 0, friendly: 0 };
     mbdMatches.forEach(m => { kinds[mbdKind(m)]++; });
-    if (status) status.textContent = `${mbdFetchedDate}: ${mbdMatches.length} matches (${kinds.cup} cups / tournaments, ${kinds.league} league, ${kinds.friendly} friendlies). Showing ${visible.length} in ${groups.length} competition${groups.length === 1 ? '' : 's'}.`;
+    if (status) status.textContent = `${mbdFetchedDate}: ${mbdMatches.length} matches (${kinds.cup} cups / tournaments, ${kinds.league} league, ${kinds.friendly} friendlies). Showing ${visible.length} in ${groups.length} competition${groups.length === 1 ? '' : 's'}.${mbdZoneNote}`;
     if (!groups.length) {
         list.innerHTML = '<div class="mbd-empty">No matches fit the filters. Tick another type (cups, leagues, friendlies), untick "Not finished only", or search for another name.</div>';
         mbdUpdateBar(); return;
