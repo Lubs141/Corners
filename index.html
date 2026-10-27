@@ -1621,6 +1621,25 @@
         .cups-toggle-container { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 15px; padding: 10px 12px; background: #f3effb; border: 1px solid #d6c9f0; border-radius: 8px; color: #343a40; }
         .cups-toggle-label { margin: 0; font-weight: 600; }
         .cups-toggle-help { flex-basis: 100%; font-size: 12px; color: #6c757d; }
+        .mbd-box { margin: 0 0 15px; padding: 10px 12px; background: #eef6ff; border: 1px solid #c9def5; border-radius: 8px; }
+        .mbd-title { font-weight: 700; cursor: pointer; user-select: none; }
+        .mbd-title small { font-weight: 400; opacity: .75; }
+        .mbd-hidden { display: none; }
+        .mbd-help, .mbd-status { font-size: 12px; margin: 6px 0; opacity: .85; }
+        .mbd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+        .mbd-check { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+        .mbd-list { max-height: 420px; overflow-y: auto; margin: 6px 0; }
+        .mbd-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 4px; font-weight: 600; font-size: 13px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,.3); position: sticky; top: 0; background: inherit; }
+        .mbd-mini { border: 1px solid #adb5bd; background: transparent; color: inherit; border-radius: 10px; padding: 1px 8px; font-size: 11px; cursor: pointer; }
+        .mbd-row-match { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 4px; font-size: 13px; border-bottom: 1px dashed rgba(128,128,128,.25); cursor: pointer; }
+        .mbd-row-match.mbd-picked { background: rgba(40,167,69,.15); }
+        .mbd-time { font-weight: 700; min-width: 42px; }
+        .mbd-teams small { opacity: .6; }
+        .mbd-chip { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: rgba(253,126,20,.2); }
+        .mbd-odds { opacity: .7; margin-left: auto; }
+        .mbd-empty { padding: 10px; font-size: 13px; opacity: .8; }
+        body.dark-mode .mbd-box { background: #16202e; border-color: #2b3849; }
+        body.dark-mode .mbd-group-head { background: #16202e; }
         body.dark-mode .cups-toggle-container { background: #1a2330; border-color: #2b3849; color: #dbe4ee; }
         body.dark-mode .cups-toggle-help { color: #9fb0c3; }
         .api-toggle-container {
@@ -3107,6 +3126,42 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                         <span class="api-toggle-slider"></span>
                     </label>
                     <span class="cups-toggle-help">Off: a team's next match is its next <em>league</em> match. On: cup, tournament and European matches count too (friendlies are still left out).</span>
+                </div>
+
+                <!-- NEW: every match of a day by competition (FA Cup, tournaments, any league) -->
+                <div id="mbdBox" class="mbd-box">
+                    <div class="mbd-title" onclick="toggleMbdPanel()" role="button" title="Show / hide">
+                        <span id="mbdArrow">▾</span> 🗓️ Matches by date <small>(FA Cup, tournaments, any competition)</small>
+                    </div>
+                    <div id="mbdBody">
+                        <div class="mbd-help">Fetches <b>all</b> football matches of a day (1 API request), grouped by competition. Tick matches and add them as team cards - each card keeps that exact match, so a cup match isn't swapped for the team's league fixture.</div>
+                        <div class="mbd-row">
+                            <input type="date" id="mbdDate" style="padding: 8px;">
+                            <button type="button" class="btn btn-primary btn-small" onclick="mbdFetch(false)">Fetch matches</button>
+                            <button type="button" class="btn btn-secondary btn-small" onclick="mbdFetch(true)" title="Fetch this date again from the API">🔄</button>
+                        </div>
+                        <div class="mbd-row">
+                            <input type="text" id="mbdSearch" placeholder="🔍 Competition or team (e.g. FA Cup)" oninput="mbdRender()" style="flex: 1 1 200px; padding: 8px;">
+                        </div>
+                        <div class="mbd-row">
+                            <span class="mbd-check"><b>Show:</b></span>
+                            <label class="mbd-check"><input type="checkbox" id="mbdIncCups" checked onchange="mbdRender()"> 🏆 Cups &amp; tournaments</label>
+                            <label class="mbd-check"><input type="checkbox" id="mbdIncLeagues" checked onchange="mbdRender()"> ⚽ League matches</label>
+                            <label class="mbd-check"><input type="checkbox" id="mbdIncFriendly" onchange="mbdRender()"> 🤝 Friendlies</label>
+                        </div>
+                        <div class="mbd-row">
+                            <label class="mbd-check"><input type="checkbox" id="mbdUpcomingOnly" checked onchange="mbdRender()"> Not finished only</label>
+                        </div>
+                        <div id="mbdStatus" class="mbd-status"></div>
+                        <div id="mbdList" class="mbd-list"></div>
+                        <div class="mbd-row">
+                            <label class="mbd-check">Teams:
+                                <select id="mbdSide" style="padding: 6px; width: auto;"><option value="both">both teams</option><option value="home">home team only</option><option value="away">away team only</option></select>
+                            </label>
+                            <label class="mbd-check"><input type="checkbox" id="mbdLoadOdds"> Also load odds (1 request per match)</label>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="mbdAddBtn" style="width: 100%;" onclick="mbdAddTicked()">✅ Add ticked matches as team cards (0)</button>
+                    </div>
                 </div>
 
                 
@@ -21173,6 +21228,233 @@ function importBackupFile(file) {
     };
     reader.onerror = () => showAlert('Could not read that file.', 'danger');
     reader.readAsText(file);
+}
+
+
+// =====================================================================
+// NEW: "Matches by date" - every match of a day, grouped by competition (FA Cup, tournaments, any league).
+// One API request per date (V2 matches/list-by-date: all football matches of that day, with a 1X2 price
+// summary). Tick matches and add them as team cards; the card gets that exact match (so a cup match stays the
+// card's match instead of being replaced by the team's league fixture).
+//   - a team already in a loaded league table keeps its league label / position / points
+//   - a team from a league you haven't loaded gets a card under its competition (no table data)
+// =====================================================================
+const MBD_FOLD_KEY = 'soccer_betting_mbd_folded';
+let mbdFolded = false;
+try { mbdFolded = localStorage.getItem(MBD_FOLD_KEY) === '1'; } catch (e) { /* ignore */ }
+let mbdMatches = [];
+let mbdFetchedDate = '';
+const mbdCache = {};                  // date -> flattened matches (this session)
+const mbdSelection = new Set();       // ticked match ids
+const mbdOpenGroups = new Set();      // competition groups the user unfolded
+let mbdBusy = false;
+
+function mbdRestorePanel() {
+    const body = document.getElementById('mbdBody'), arrow = document.getElementById('mbdArrow'), date = document.getElementById('mbdDate');
+    if (body) body.classList.toggle('mbd-hidden', mbdFolded);
+    if (arrow) arrow.textContent = mbdFolded ? '▸' : '▾';
+    if (date && !date.value) date.value = toLocalDateString(new Date());
+}
+document.addEventListener('DOMContentLoaded', mbdRestorePanel);
+function toggleMbdPanel() {
+    mbdFolded = !mbdFolded;
+    try { localStorage.setItem(MBD_FOLD_KEY, mbdFolded ? '1' : '0'); } catch (e) { /* ignore */ }
+    mbdRestorePanel();
+}
+function mbdKind(m) {                    // 'friendly' | 'league' | 'cup' (cups, European, tournaments, qualifiers, trophies)
+    if (isFriendlyFixture(m)) return 'friendly';
+    return isDomesticLeagueFixture(m) ? 'league' : 'cup';
+}
+function mbdIsCupLike(m) { return mbdKind(m) === 'cup'; }
+function mbdStatusText(m) {
+    const st = m.match_status || {};
+    const sc = m.scores && m.scores.home !== undefined && m.scores.home !== null ? `${m.scores.home}-${m.scores.away}` : '';
+    if (st.is_finished) return `FT ${sc}`.trim();
+    if (st.is_in_progress) return `LIVE ${sc}${st.live_time ? ' ' + st.live_time : ''}`.trim();
+    return '';
+}
+function mbdOddsText(m) {
+    const o = m.odds;
+    if (!o || (o['1'] === undefined && o[1] === undefined)) return '';
+    const g = k => (o[k] !== undefined ? o[k] : '-');
+    return `1 ${g('1')} · X ${g('X')} · 2 ${g('2')}`;
+}
+
+async function mbdFetch(force) {
+    if (mbdBusy) return;
+    if (!isApiModeEnabled()) { showAlert(apiOffMsg('Turn on "Use API Data Source" to fetch matches.'), 'warning'); return; }
+    const dateEl = document.getElementById('mbdDate');
+    const date = (dateEl && dateEl.value) || toLocalDateString(new Date());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { showAlert('Pick a date first.', 'warning'); return; }
+    const status = document.getElementById('mbdStatus');
+    if (!force && mbdCache[date]) { mbdMatches = mbdCache[date]; mbdFetchedDate = date; mbdRender(); return; }
+    mbdBusy = true;
+    if (status) status.textContent = `⏳ Fetching matches for ${date}…`;
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/matches/list-by-date?sport_id=1&date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(APP_TIME_ZONE)}`, { method: 'GET', headers: API_HEADERS });
+        if (!response.ok) throw new Error(response.status === 429 ? 'API rate limit reached - try again in a moment' : `Request failed (${response.status})`);
+        const payload = await response.json();
+        const flat = v2FlattenMatchGroups(payload);
+        if (!Array.isArray(flat)) throw new Error('Unexpected response from the API');
+        mbdCache[date] = flat.filter(m => m && m.match_id && m.home_team && m.away_team);
+        mbdMatches = mbdCache[date];
+        mbdFetchedDate = date;
+        mbdSelection.clear(); mbdOpenGroups.clear();
+        mbdRender();
+    } catch (e) {
+        if (e instanceof ApiDisabledError) { /* the "turn on / add key" message was already shown */ }
+        else showAlert(`Could not fetch matches: ${e.message}`, 'danger');
+        if (status) status.textContent = '';
+    } finally { mbdBusy = false; }
+}
+
+function mbdVisibleMatches() {
+    const inc = { cup: (document.getElementById('mbdIncCups') || {}).checked, league: (document.getElementById('mbdIncLeagues') || {}).checked, friendly: (document.getElementById('mbdIncFriendly') || {}).checked };
+    const upcomingOnly = (document.getElementById('mbdUpcomingOnly') || {}).checked;
+    const q = ((document.getElementById('mbdSearch') || {}).value || '').toLowerCase().trim();
+    return mbdMatches.filter(m => {
+        if (!inc[mbdKind(m)]) return false;
+        if (upcomingOnly && m.match_status && m.match_status.is_finished) return false;
+        if (q) {
+            const hay = `${m.tournament.full_name || ''} ${m.tournament.name || ''} ${m.home_team.name} ${m.away_team.name}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+        }
+        return true;
+    });
+}
+function mbdGroups(list) {
+    const groups = [];
+    list.forEach(m => {
+        const key = m.tournament.tournament_url || m.tournament.full_name;
+        let g = groups.find(x => x.key === key);
+        if (!g) { g = { key, label: m.tournament.full_name || m.tournament.name, items: [] }; groups.push(g); }
+        g.items.push(m);
+    });
+    groups.forEach(g => g.items.sort((a, b) => a.timestamp - b.timestamp));
+    return groups.sort((a, b) => a.label.localeCompare(b.label));
+}
+function mbdRender() {
+    const list = document.getElementById('mbdList'), status = document.getElementById('mbdStatus');
+    if (!list) return;
+    if (!mbdFetchedDate) { list.innerHTML = ''; mbdUpdateBar(); return; }
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const visible = mbdVisibleMatches();
+    const groups = mbdGroups(visible);
+    const searching = !!((document.getElementById('mbdSearch') || {}).value || '').trim();
+    const kinds = { cup: 0, league: 0, friendly: 0 };
+    mbdMatches.forEach(m => { kinds[mbdKind(m)]++; });
+    if (status) status.textContent = `${mbdFetchedDate}: ${mbdMatches.length} matches (${kinds.cup} cups / tournaments, ${kinds.league} league, ${kinds.friendly} friendlies). Showing ${visible.length} in ${groups.length} competition${groups.length === 1 ? '' : 's'}.`;
+    if (!groups.length) {
+        list.innerHTML = '<div class="mbd-empty">No matches fit the filters. Tick another type (cups, leagues, friendlies), untick "Not finished only", or search for another name.</div>';
+        mbdUpdateBar(); return;
+    }
+    list.innerHTML = groups.map((g, gi) => {
+        const open = searching || groups.length <= 3 || mbdOpenGroups.has(g.key);
+        const ticked = g.items.filter(m => mbdSelection.has(m.match_id)).length;
+        const rows = open ? g.items.map(m => {
+            const dt = new Date(m.timestamp * 1000);
+            const st = mbdStatusText(m), od = mbdOddsText(m);
+            return `<label class="mbd-row-match ${mbdSelection.has(m.match_id) ? 'mbd-picked' : ''}"><input type="checkbox" ${mbdSelection.has(m.match_id) ? 'checked' : ''} data-id="${esc(m.match_id)}" onchange="mbdToggle(this.dataset.id, this.checked)">
+                <span class="mbd-time">${esc(toAppTimeString(dt))}</span>
+                <span class="mbd-teams">${esc(m.home_team.name)} <small>vs</small> ${esc(m.away_team.name)}</span>
+                ${st ? `<span class="mbd-chip">${esc(st)}</span>` : ''}${od ? `<small class="mbd-odds">${esc(od)}</small>` : ''}</label>`;
+        }).join('') : '';
+        return `<div class="mbd-group"><div class="mbd-group-head" data-g="${esc(g.key)}" onclick="mbdToggleGroup(this.dataset.g)"><span>${open ? '▾' : '▸'} ${esc(g.label)} <b>(${g.items.length}${ticked ? `, ${ticked} ticked` : ''})</b></span><button type="button" class="mbd-mini" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdTickGroup(this.dataset.g)" title="Tick / untick every match shown in this competition">all</button></div>${rows}</div>`;
+    }).join('');
+    mbdUpdateBar();
+}
+function mbdToggleGroup(key) { if (mbdOpenGroups.has(key)) mbdOpenGroups.delete(key); else mbdOpenGroups.add(key); mbdRender(); }
+function mbdToggle(id, checked) {
+    if (checked) mbdSelection.add(id); else mbdSelection.delete(id);
+    const row = document.querySelector(`#mbdList input[data-id="${id.replace(/"/g, '')}"]`);
+    if (row && row.parentElement) row.parentElement.classList.toggle('mbd-picked', checked);
+    mbdUpdateBar();
+}
+function mbdTickGroup(key) {
+    const items = mbdVisibleMatches().filter(m => (m.tournament.tournament_url || m.tournament.full_name) === key);
+    const all = items.every(m => mbdSelection.has(m.match_id));
+    items.forEach(m => { if (all) mbdSelection.delete(m.match_id); else mbdSelection.add(m.match_id); });
+    mbdOpenGroups.add(key);
+    mbdRender();
+}
+function mbdUpdateBar() {
+    const btn = document.getElementById('mbdAddBtn');
+    if (btn) btn.textContent = `✅ Add ticked matches as team cards (${mbdSelection.size})`;
+}
+
+// a team that is already in one of the loaded league tables: its league label, table row and rank
+function findTeamInLoadedStandings(name) {
+    const n = String(name || '').toLowerCase();
+    let best = null;
+    Object.keys(completeApiStandings || {}).forEach(label => {
+        const e = completeApiStandings[label];
+        if (!e || !Array.isArray(e.standings)) return;
+        const i = e.standings.findIndex(r => String(r.name).toLowerCase() === n);
+        if (i < 0) return;
+        const domestic = isDomesticLeagueFixture({ tournament: { name: e.tournament || label } }) && !/\(Group/i.test(label);
+        if (!best || (domestic && !best.domestic)) best = { label, row: e.standings[i], rank: i + 1, domestic };
+    });
+    return best;
+}
+async function mbdAddTicked() {
+    if (mbdBusy) return;
+    const ticked = mbdMatches.filter(m => mbdSelection.has(m.match_id)).sort((a, b) => a.timestamp - b.timestamp);
+    if (!ticked.length) { showAlert('Tick one or more matches first.', 'warning'); return; }
+    const side = (document.getElementById('mbdSide') || {}).value || 'both';
+    const sides = side === 'home' ? ['home_team'] : side === 'away' ? ['away_team'] : ['home_team', 'away_team'];
+    let added = 0, updated = 0, same = 0, lastLabel = '';
+    const touched = [];
+    ticked.forEach(m => {
+        sides.forEach(k => {
+            const tm = m[k];
+            if (!tm || !tm.name) return;
+            if (tm.team_id) teamIdMap[tm.name] = tm.team_id;
+            const found = findTeamInLoadedStandings(tm.name);
+            const comp = m.tournament || {};
+            const label = found ? found.label : `${comp.country_name ? comp.country_name + ' - ' : ''}${comp.name || 'Competition'}`;
+            lastLabel = label;
+            let card = extractedTeams.find(t => String(t.team).toLowerCase() === tm.name.toLowerCase() && t.country === label);
+            if (card) {
+                if (card.fixtureDetails && card.fixtureDetails.match_id === m.match_id) { same++; return; }
+                applyFixtureToExtractedTeam(card, m);
+                updated++; touched.push(card); return;
+            }
+            const row = found ? Object.assign({}, found.row) : { name: tm.name, goals: '0:0', matches_played: 0, wins: 0, draws: 0, losses: 0, goal_difference: 0, points: 0 };
+            if (!row.team_id) row.team_id = tm.team_id;
+            card = buildApiTeamObject(row, label, found ? found.rank : 0);
+            applyFixtureToExtractedTeam(card, m);
+            card.cupOnly = !found;
+            extractedTeams.push(card);
+            added++; touched.push(card);
+        });
+    });
+    saveTeamIdMap();
+    if (lastLabel) { currentCountry = lastLabel; try { saveCurrentCountry(); } catch (e) { /* ignore */ } }
+    saveExtractedTeams();
+    displaySelectedTeams();
+    const section = document.getElementById('teamsSection'); if (section) section.classList.remove('hidden');
+    showAlert(`${added} card${added === 1 ? '' : 's'} added${updated ? `, ${updated} existing card${updated === 1 ? '' : 's'} switched to the ticked match` : ''}${same ? `, ${same} already on this match` : ''}.${added && touched.some(t => t.cupOnly) ? ' Teams whose league table isn\'t loaded have no position or points.' : ''}`, 'success');
+    mbdSelection.clear();
+    mbdRender();
+    // optional: odds for each card's own match (the normal Auto-fetch would swap a cup match for the team's league fixture)
+    if ((document.getElementById('mbdLoadOdds') || {}).checked && touched.length) {
+        mbdBusy = true;
+        let ok = 0;
+        const seen = new Set();
+        for (const card of touched) {
+            const id = card.fixtureDetails && card.fixtureDetails.match_id;
+            const idx = extractedTeams.indexOf(card);
+            if (!id || idx < 0) continue;
+            try {
+                if (!seen.has(id)) { seen.add(id); await new Promise(r => setTimeout(r, 250)); }
+                const odds = currentMatchOdds[id] || await fetchMatchOdds(id);
+                if (odds) { card.apiEnabled = true; updateApiMarketDropdown(idx, odds); autoSelectBestMarket(idx, odds); ok++; }
+            } catch (e) { if (e instanceof ApiDisabledError) break; }
+        }
+        mbdBusy = false;
+        saveExtractedTeams(); displaySelectedTeams();
+        showAlert(`Odds loaded for ${ok} card${ok === 1 ? '' : 's'}.`, ok ? 'success' : 'warning');
+    }
 }
 
 
