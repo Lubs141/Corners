@@ -15361,6 +15361,7 @@ function loadAllData() {
     loadTeamLogos(); // NEW: remembered team logos
     loadTeamIdMap(); // Load team ID mapping
     loadCompleteApiStandings(); // Load complete API standings
+    try { upgradeStubCardsFromStandings(true); } catch (e) { console.warn('Card upgrade skipped', e); }   // NEW: cards added before their league table was loaded
     
     if (extractedTeams.length > 0) {
         displaySelectedTeams();
@@ -15513,6 +15514,7 @@ function saveCompleteApiStandings() {
     } catch (error) {
         console.error('Error saving complete API standings:', error);
     }
+    try { upgradeStubCardsFromStandings(); } catch (e) { console.warn('Card upgrade skipped', e); }   // NEW: cards waiting for this table
 }
 
 // NEW FUNCTION: Load complete API standings from localStorage
@@ -21418,6 +21420,44 @@ function findTeamInLoadedStandings(name) {
     });
     return best;
 }
+
+// ---- NEW: cards added before their league table was loaded get the table data as soon as it is saved ----
+// A team added from "Matches by date" whose league wasn't loaded sits on a card filed under its competition (no position,
+// points or form numbers). When a league table that contains the team is saved (or found at start-up), the card moves to that
+// league with the table data; its match, picks and switches are kept. If the team already has a card in that league, the
+// match is moved onto that card and the extra card is dropped.
+function upgradeStubCardsFromStandings(quiet) {
+    if (!Array.isArray(extractedTeams) || !extractedTeams.some(t => t && t.cupOnly)) return 0;
+    let upgraded = 0, merged = 0;
+    const drop = new Set();
+    extractedTeams.forEach(card => {
+        if (!card || !card.cupOnly) return;
+        const found = findTeamInLoadedStandings(card.team);
+        if (!found) return;
+        const existing = extractedTeams.find(t => t !== card && !t.cupOnly && t.country === found.label && String(t.team).toLowerCase() === String(card.team).toLowerCase());
+        if (existing) {
+            ['venue', 'opponent', 'matchDate', 'matchTime', 'fixtureDetails', 'nextFixture'].forEach(k => { existing[k] = card[k]; });
+            if (!existing.prediction && card.prediction) { existing.prediction = card.prediction; existing.betMarket = card.betMarket; existing.odds = card.odds; }
+            if (card.apiEnabled) existing.apiEnabled = true;
+            drop.add(card); merged++;
+            return;
+        }
+        const fresh = buildApiTeamObject(Object.assign({}, found.row, { team_id: found.row.team_id || card.team_id }), found.label, found.rank);
+        ['pos', 'p', 'w', 'd', 'l', 'gf', 'ga', 'diff', 'pts'].forEach(k => { if (fresh[k] !== undefined) card[k] = fresh[k]; });
+        if (!card.team_id && fresh.team_id) card.team_id = fresh.team_id;
+        if (currentCountry === card.country) currentCountry = found.label;
+        card.country = found.label;
+        delete card.cupOnly;
+        upgraded++;
+    });
+    if (drop.size) extractedTeams = extractedTeams.filter(t => !drop.has(t));
+    if (upgraded || merged) {
+        try { saveExtractedTeams(); displaySelectedTeams(); } catch (e) { console.warn(e); }
+        if (!quiet) showAlert(`League table loaded: ${upgraded + merged} card${upgraded + merged === 1 ? '' : 's'} updated with table data${merged ? ` (${merged} merged into an existing league card)` : ''}.`, 'success');
+    }
+    return upgraded + merged;
+}
+
 async function mbdAddTicked() {
     if (mbdBusy) return;
     const ticked = mbdMatches.filter(m => mbdSelection.has(m.match_id)).sort((a, b) => a.timestamp - b.timestamp);
