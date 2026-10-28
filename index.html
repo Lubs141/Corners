@@ -3148,9 +3148,13 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                             <label class="mbd-check"><input type="checkbox" id="mbdIncCups" checked onchange="mbdRender()"> 🏆 Cups &amp; tournaments</label>
                             <label class="mbd-check"><input type="checkbox" id="mbdIncLeagues" checked onchange="mbdRender()"> ⚽ League matches</label>
                             <label class="mbd-check"><input type="checkbox" id="mbdIncFriendly" onchange="mbdRender()"> 🤝 Friendlies</label>
+                            <label class="mbd-check" title="Matches the bookmakers have no 1X2 price for (common in lower leagues and friendlies). Untick to hide them."><input type="checkbox" id="mbdIncNoOdds" checked onchange="mbdRender()"> 📭 Without odds</label>
                         </div>
                         <div class="mbd-row">
-                            <label class="mbd-check"><input type="checkbox" id="mbdUpcomingOnly" checked onchange="mbdRender()"> Not finished only</label>
+                            <span class="mbd-check"><b>Status:</b></span>
+                            <label class="mbd-check"><input type="checkbox" id="mbdIncNotStarted" checked onchange="mbdRender()"> ⏳ Not started</label>
+                            <label class="mbd-check" title="Matches being played right now (in play / half-time)"><input type="checkbox" id="mbdIncLive" checked onchange="mbdRender()"> 🔴 Live (in play)</label>
+                            <label class="mbd-check"><input type="checkbox" id="mbdIncFinished" onchange="mbdRender()"> ✅ Finished</label>
                         </div>
                         <div id="mbdStatus" class="mbd-status"></div>
                         <div id="mbdList" class="mbd-list"></div>
@@ -21277,6 +21281,16 @@ function mbdStatusText(m) {
     if (st.is_in_progress) return `LIVE ${sc}${st.live_time ? ' ' + st.live_time : ''}`.trim();
     return '';
 }
+function mbdStatusKind(m) {            // 'finished' | 'live' | 'notStarted'
+    const st = m.match_status || {};
+    if (st.is_finished) return 'finished';
+    if (st.is_in_progress) return 'live';
+    return 'notStarted';
+}
+function mbdHasOdds(m) {                // the day list carries a 1X2 price summary only for matches that have odds (otherwise an empty list)
+    const o = m.odds;
+    return !!o && !Array.isArray(o) && !!(o['1'] || o['X'] || o['2']);
+}
 function mbdOddsText(m) {
     const o = m.odds;
     if (!o || (o['1'] === undefined && o[1] === undefined)) return '';
@@ -21334,11 +21348,13 @@ async function mbdFetch(force) {
 
 function mbdVisibleMatches() {
     const inc = { cup: (document.getElementById('mbdIncCups') || {}).checked, league: (document.getElementById('mbdIncLeagues') || {}).checked, friendly: (document.getElementById('mbdIncFriendly') || {}).checked };
-    const upcomingOnly = (document.getElementById('mbdUpcomingOnly') || {}).checked;
+    const incStatus = { notStarted: (document.getElementById('mbdIncNotStarted') || { checked: true }).checked, live: (document.getElementById('mbdIncLive') || { checked: true }).checked, finished: (document.getElementById('mbdIncFinished') || { checked: false }).checked };
+    const incNoOdds = (document.getElementById('mbdIncNoOdds') || { checked: true }).checked;
     const q = ((document.getElementById('mbdSearch') || {}).value || '').toLowerCase().trim();
     return mbdMatches.filter(m => {
         if (!inc[mbdKind(m)]) return false;
-        if (upcomingOnly && m.match_status && m.match_status.is_finished) return false;
+        if (!incNoOdds && !mbdHasOdds(m)) return false;
+        if (!incStatus[mbdStatusKind(m)]) return false;
         if (q) {
             const hay = `${m.tournament.full_name || ''} ${m.tournament.name || ''} ${m.home_team.name} ${m.away_team.name}`.toLowerCase();
             if (!hay.includes(q)) return false;
@@ -21367,9 +21383,12 @@ function mbdRender() {
     const searching = !!((document.getElementById('mbdSearch') || {}).value || '').trim();
     const kinds = { cup: 0, league: 0, friendly: 0 };
     mbdMatches.forEach(m => { kinds[mbdKind(m)]++; });
-    if (status) status.textContent = `${mbdFetchedDate}: ${mbdMatches.length} matches (${kinds.cup} cups / tournaments, ${kinds.league} league, ${kinds.friendly} friendlies). Showing ${visible.length} in ${groups.length} competition${groups.length === 1 ? '' : 's'}.${mbdZoneNote}`;
+    const noOdds = mbdMatches.filter(m => !mbdHasOdds(m)).length;
+    const states = { notStarted: 0, live: 0, finished: 0 };
+    mbdMatches.forEach(m => { states[mbdStatusKind(m)]++; });
+    if (status) status.textContent = `${mbdFetchedDate}: ${mbdMatches.length} matches (${kinds.cup} cups / tournaments, ${kinds.league} league, ${kinds.friendly} friendlies; ${noOdds} without odds; ${states.notStarted} not started, ${states.live} live, ${states.finished} finished). Showing ${visible.length} in ${groups.length} competition${groups.length === 1 ? '' : 's'}.${mbdZoneNote}`;
     if (!groups.length) {
-        list.innerHTML = '<div class="mbd-empty">No matches fit the filters. Tick another type (cups, leagues, friendlies), untick "Not finished only", or search for another name.</div>';
+        list.innerHTML = '<div class="mbd-empty">No matches fit the filters. Tick another type (cups, leagues, friendlies, without odds), tick another status (not started, live, finished), or search for another name.</div>';
         mbdUpdateBar(); return;
     }
     list.innerHTML = groups.map((g, gi) => {
