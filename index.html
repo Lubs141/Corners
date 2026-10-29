@@ -3164,6 +3164,9 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                             </label>
                             <label class="mbd-check"><input type="checkbox" id="mbdLoadOdds"> Also load odds (1 request per match)</label>
                         </div>
+                        <div class="mbd-row">
+                            <label class="mbd-check" title="When you add teams, their league tables are fetched and saved for you, so the cards come out complete. Tables already saved are skipped."><input type="checkbox" id="mbdAutoTables" onchange="mbdAutoTablesChanged()"> 🔄 Auto-fetch &amp; save the league tables of added teams <small>(about 2 requests per league; +1 per team from a cup match)</small></label>
+                        </div>
                         <button type="button" class="btn btn-primary" id="mbdAddBtn" style="width: 100%;" onclick="mbdAddTicked()">✅ Add ticked matches as team cards (0)</button>
                     </div>
                 </div>
@@ -21516,6 +21519,106 @@ function upgradeStubCardsFromStandings(quiet) {
     return upgraded + merged;
 }
 
+
+// ---- NEW: automatic league tables for the teams you add (optional toggle) ----
+// With "Auto-fetch league tables" on, adding teams from the day list also fetches and saves the league table of every added
+// team that has none yet - so the cards come out complete (position, points, form of the table, leader gaps, View League Table).
+//   * a team from a LEAGUE match: that match's competition is its league
+//   * a team from a CUP / tournament match: its league is found from its own fixtures (1 request; results as a fallback)
+//   * each league is fetched once (tournament ids + standings = 2 requests) and saved exactly like a manual fetch; a league
+//     already saved (same tournament) is skipped
+const MBD_AUTO_TABLES_KEY = 'soccer_betting_mbd_auto_tables';
+function mbdAutoTablesOn() { return !!(document.getElementById('mbdAutoTables') || {}).checked; }
+function mbdRestoreAutoTables() {
+    const el = document.getElementById('mbdAutoTables'); if (!el) return;
+    try { el.checked = localStorage.getItem(MBD_AUTO_TABLES_KEY) === '1'; } catch (e) { /* ignore */ }
+}
+document.addEventListener('DOMContentLoaded', mbdRestoreAutoTables);
+function mbdAutoTablesChanged() {
+    try { localStorage.setItem(MBD_AUTO_TABLES_KEY, mbdAutoTablesOn() ? '1' : '0'); } catch (e) { /* ignore */ }
+}
+async function mbdGetJson(url) {
+    const response = await apiFetch(url, { method: 'GET', headers: API_HEADERS });
+    if (response.status === 429) { const e = new Error('rate limit'); e.rateLimit = true; throw e; }
+    if (!response.ok) return null;
+    return await response.json();
+}
+// the domestic league a team plays in, from its own fixtures (then results): { url, country, name } or null
+async function mbdFindTeamLeague(teamName) {
+    const id = teamIdMap[teamName];
+    if (!id) return null;
+    for (const kind of ['fixtures', 'results']) {
+        const list = await mbdGetJson(`${API_BASE_URL}/teams/${kind}?team_id=${encodeURIComponent(id)}&page=1`);
+        const hit = Array.isArray(list) ? list.find(f => f && f.tournament && f.tournament.tournament_url && isDomesticLeagueFixture(f) && !isFriendlyFixture(f)) : null;
+        if (hit) return { url: hit.tournament.tournament_url, country: hit.tournament.country_name, name: hit.tournament.name };
+        await new Promise(r => setTimeout(r, 200));
+    }
+    return null;
+}
+// fetch + save one league table like the manual path does. Returns 'saved' | 'known' | 'failed'
+async function mbdFetchAndSaveLeagueTable(league) {
+    if (Object.values(completeApiStandings).some(e => e && e.tournament_url === league.url)) return 'known';
+    const ids = await mbdGetJson(`${API_BASE_URL}/tournaments/ids?tournament_url=${encodeURIComponent(league.url)}`);
+    if (!ids || !ids.tournament_id) return 'failed';
+    if (Object.values(completeApiStandings).some(e => e && e.tournament_stage_id && e.tournament_stage_id === ids.tournament_stage_id)) return 'known';   // saved earlier under another name
+    const standings = await mbdGetJson(v2StandingsUrl(ids, 'overall'));
+    if (!Array.isArray(standings) || !standings.length) return 'failed';
+    const displayName = `${league.country} - ${league.name}`;
+    if (completeApiStandings[displayName]) return 'known';
+    buildTeamIdMap(standings);
+    completeApiStandings[displayName] = {
+        standings, timestamp: Date.now(), country: league.country, tournament: league.name,
+        tournament_id: ids.tournament_id, tournament_stage_id: ids.tournament_stage_id, tournament_url: league.url
+    };
+    return 'saved';
+}
+async function mbdAutoFetchTables(stubs) {
+    const status = document.getElementById('mbdStatus');
+    const say = t => { if (status) status.textContent = t; };
+    // 1) which league does each table-less team play in?
+    const leagues = new Map();                          // url -> league
+    const lookups = [];                                  // teams from cup matches: league needs a lookup
+    const seen = new Set();
+    stubs.forEach(({ team, match }) => {
+        if (seen.has(team.name)) return; seen.add(team.name);
+        if (mbdKind(match) === 'league') {
+            const t = match.tournament;
+            if (t.tournament_url) leagues.set(t.tournament_url, { url: t.tournament_url, country: t.country_name, name: t.name });
+        } else lookups.push(team.name);
+    });
+    // teams of a cup match whose league is already among the league matches need no lookup
+    const estimate = leagues.size * 2 + lookups.length * 3;
+    if (!leagues.size && !lookups.length) return;
+    if (estimate > 12 && !window.confirm(`Fetch the league tables for the added teams?\n\nUp to about ${estimate} API requests (${leagues.size} league${leagues.size === 1 ? '' : 's'} from league matches, ${lookups.length} team${lookups.length === 1 ? '' : 's'} from cup matches to look up). Tables already saved are skipped.`)) {
+        showAlert('Cards added without league tables. You can load the tables manually in Step 1.', 'info'); return;
+    }
+    let saved = 0, known = 0, failed = 0, noLeague = 0, requests = 0, stopped = false;
+    mbdBusy = true;
+    try {
+        for (let i = 0; i < lookups.length; i++) {
+            // a team whose league is already saved needs nothing
+            if (findTeamInLoadedStandings(lookups[i])) continue;
+            say(`⏳ Finding the league of ${lookups[i]} (${i + 1}/${lookups.length})…`);
+            const lg = await mbdFindTeamLeague(lookups[i]); requests++;
+            if (lg) leagues.set(lg.url, lg); else noLeague++;
+        }
+        let n = 0;
+        for (const lg of leagues.values()) {
+            n++;
+            say(`⏳ Fetching league table ${n}/${leagues.size}: ${lg.country} - ${lg.name}…`);
+            const r = await mbdFetchAndSaveLeagueTable(lg);
+            if (r === 'saved') saved++; else if (r === 'known') known++; else failed++;
+            await new Promise(res => setTimeout(res, 250));
+        }
+    } catch (e) {
+        if (e && e.rateLimit) { stopped = true; showAlert('API rate limit reached - stopped fetching league tables. Run it again in a moment (tables already saved are kept).', 'warning'); }
+        else if (!(e instanceof ApiDisabledError)) { failed++; console.warn('Auto league tables stopped', e); }
+    } finally { mbdBusy = false; }
+    if (saved) saveCompleteApiStandings();               // also upgrades the cards waiting for these tables
+    mbdRender();
+    if (!stopped) showAlert(`League tables: ${saved} saved${known ? `, ${known} already saved` : ''}${failed ? `, ${failed} could not be loaded` : ''}${noLeague ? `, ${noLeague} team${noLeague === 1 ? '' : 's'} without a league found` : ''}.`, failed || noLeague ? 'warning' : 'success');
+}
+
 async function mbdAddTicked() {
     if (mbdBusy) return;
     const ticked = mbdMatches.filter(m => mbdSelection.has(m.match_id)).sort((a, b) => a.timestamp - b.timestamp);
@@ -21523,6 +21626,7 @@ async function mbdAddTicked() {
     const side = (document.getElementById('mbdSide') || {}).value || 'both';
     const sides = side === 'home' ? ['home_team'] : side === 'away' ? ['away_team'] : ['home_team', 'away_team'];
     let added = 0, updated = 0, same = 0, lastLabel = '', groupSaved = false;
+    const stubs = [];                   // cards created without a league table: { team, match }
     const touched = [];
     ticked.forEach(m => {
         sides.forEach(k => {
@@ -21545,6 +21649,7 @@ async function mbdAddTicked() {
             card = buildApiTeamObject(row, label, found ? found.rank : 0);
             applyFixtureToExtractedTeam(card, m);
             card.cupOnly = !found;
+            if (!found) stubs.push({ team: tm, match: m });
             extractedTeams.push(card);
             added++; touched.push(card);
         });
@@ -21558,6 +21663,7 @@ async function mbdAddTicked() {
     showAlert(`${added} card${added === 1 ? '' : 's'} added${updated ? `, ${updated} existing card${updated === 1 ? '' : 's'} switched to the ticked match` : ''}${same ? `, ${same} already on this match` : ''}.${added && touched.some(t => t.cupOnly) ? ' Teams whose league table isn\'t loaded have no position or points.' : ''}`, 'success');
     mbdSelection.clear();
     mbdRender();
+    if (mbdAutoTablesOn() && stubs.length) await mbdAutoFetchTables(stubs);   // NEW: fetch + save the league tables of the added teams
     // optional: odds for each card's own match (the normal Auto-fetch would swap a cup match for the team's league fixture)
     if ((document.getElementById('mbdLoadOdds') || {}).checked && touched.length) {
         mbdBusy = true;
