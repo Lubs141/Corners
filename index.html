@@ -21425,19 +21425,56 @@ function mbdUpdateBar() {
     if (btn) btn.textContent = `✅ Add ticked matches as team cards (${mbdSelection.size})`;
 }
 
-// a team that is already in one of the loaded league tables: its league label, table row and rank
+// a team that is already in one of the loaded league tables: its league label, table row and rank.
+// GROUPED leagues: a table split into groups (Group 1, Group 2 ...) is handled per group - the team gets its group's label
+// ("Country - League (Group 2)"), its rank inside that group and that group's leader. A group table saved by an earlier
+// extraction is used as is; otherwise the groups are worked out from the saved league table (same points-run detection the
+// table view uses) and the group's own table is saved, so the card, the Teams table, View League Table, opponent lookups
+// and leader gaps all see the same group.
 function findTeamInLoadedStandings(name) {
     const n = String(name || '').toLowerCase();
     let best = null;
+    const score = c => (c.domestic ? 10 : 0) + c.kind;          // kind: 3 saved group table, 2 group found in the saved table, 1 single flat table
+    const consider = c => { if (!best || score(c) > score(best)) best = c; };
     Object.keys(completeApiStandings || {}).forEach(label => {
         const e = completeApiStandings[label];
         if (!e || !Array.isArray(e.standings)) return;
+        const domestic = isDomesticLeagueFixture({ tournament: { name: e.tournament || label } });
+        const isGroupKey = /\(Group [^)]*\)\s*$/i.test(label);
+        if (isGroupKey) {
+            const i = e.standings.findIndex(r => String(r.name).toLowerCase() === n);
+            if (i >= 0) consider({ label, row: e.standings[i], rank: i + 1, domestic, kind: 3 });
+            return;
+        }
+        const runs = detectGroupRunsByPoints(e.standings);
+        if (isConfidentGrouping(runs)) {
+            runs.forEach((run, ri) => {
+                const i = run.teams.findIndex(r => String(r.name).toLowerCase() === n);
+                if (i < 0) return;
+                const gLabel = `${label} (Group ${ri + 1})`;
+                if (completeApiStandings[gLabel]) return;           // already saved: found above as a saved group table
+                consider({ label: gLabel, row: run.teams[i], rank: i + 1, domestic, kind: 2, virtual: { entry: e, run } });
+            });
+            return;
+        }
         const i = e.standings.findIndex(r => String(r.name).toLowerCase() === n);
-        if (i < 0) return;
-        const domestic = isDomesticLeagueFixture({ tournament: { name: e.tournament || label } }) && !/\(Group/i.test(label);
-        if (!best || (domestic && !best.domestic)) best = { label, row: e.standings[i], rank: i + 1, domestic };
+        if (i >= 0) consider({ label, row: e.standings[i], rank: i + 1, domestic, kind: 1 });
     });
     return best;
+}
+// saves the group's own table the first time a card joins it (what an extraction does for a grouped league)
+function ensureGroupStandingsEntry(found) {
+    if (!found || !found.virtual || completeApiStandings[found.label]) return false;
+    const e = found.virtual.entry, run = found.virtual.run;
+    completeApiStandings[found.label] = {
+        standings: run.teams, timestamp: Date.now(), country: e.country, tournament: e.tournament,
+        tournament_id: e.tournament_id, tournament_stage_id: e.tournament_stage_id,
+        groupTeamNames: run.teams.map(t => t.name)
+    };
+    return true;
+}
+function persistStandingsQuiet() {      // write the tables without triggering the card upgrade hook
+    try { localStorage.setItem(STORAGE_KEYS.COMPLETE_API_STANDINGS, JSON.stringify(completeApiStandings)); } catch (e) { console.error('Error saving complete API standings:', e); }
 }
 
 // ---- NEW: cards added before their league table was loaded get the table data as soon as it is saved ----
@@ -21447,12 +21484,13 @@ function findTeamInLoadedStandings(name) {
 // match is moved onto that card and the extra card is dropped.
 function upgradeStubCardsFromStandings(quiet) {
     if (!Array.isArray(extractedTeams) || !extractedTeams.some(t => t && t.cupOnly)) return 0;
-    let upgraded = 0, merged = 0;
+    let upgraded = 0, merged = 0, groupSaved = false;
     const drop = new Set();
     extractedTeams.forEach(card => {
         if (!card || !card.cupOnly) return;
         const found = findTeamInLoadedStandings(card.team);
         if (!found) return;
+        if (ensureGroupStandingsEntry(found)) groupSaved = true;
         const existing = extractedTeams.find(t => t !== card && !t.cupOnly && t.country === found.label && String(t.team).toLowerCase() === String(card.team).toLowerCase());
         if (existing) {
             ['venue', 'opponent', 'matchDate', 'matchTime', 'fixtureDetails', 'nextFixture'].forEach(k => { existing[k] = card[k]; });
@@ -21469,6 +21507,7 @@ function upgradeStubCardsFromStandings(quiet) {
         delete card.cupOnly;
         upgraded++;
     });
+    if (groupSaved) persistStandingsQuiet();
     if (drop.size) extractedTeams = extractedTeams.filter(t => !drop.has(t));
     if (upgraded || merged) {
         try { saveExtractedTeams(); displaySelectedTeams(); } catch (e) { console.warn(e); }
@@ -21483,7 +21522,7 @@ async function mbdAddTicked() {
     if (!ticked.length) { showAlert('Tick one or more matches first.', 'warning'); return; }
     const side = (document.getElementById('mbdSide') || {}).value || 'both';
     const sides = side === 'home' ? ['home_team'] : side === 'away' ? ['away_team'] : ['home_team', 'away_team'];
-    let added = 0, updated = 0, same = 0, lastLabel = '';
+    let added = 0, updated = 0, same = 0, lastLabel = '', groupSaved = false;
     const touched = [];
     ticked.forEach(m => {
         sides.forEach(k => {
@@ -21491,6 +21530,7 @@ async function mbdAddTicked() {
             if (!tm || !tm.name) return;
             if (tm.team_id) teamIdMap[tm.name] = tm.team_id;
             const found = findTeamInLoadedStandings(tm.name);
+            if (ensureGroupStandingsEntry(found)) groupSaved = true;
             const comp = m.tournament || {};
             const label = found ? found.label : `${comp.country_name ? comp.country_name + ' - ' : ''}${comp.name || 'Competition'}`;
             lastLabel = label;
@@ -21510,6 +21550,7 @@ async function mbdAddTicked() {
         });
     });
     saveTeamIdMap();
+    if (groupSaved) persistStandingsQuiet();
     if (lastLabel) { currentCountry = lastLabel; try { saveCurrentCountry(); } catch (e) { /* ignore */ } }
     saveExtractedTeams();
     displaySelectedTeams();
