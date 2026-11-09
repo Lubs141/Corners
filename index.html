@@ -3581,7 +3581,6 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 </div>
 
 <div class="table-container" id="teamsDataTableContainer">&nbsp;</div>
-</div>
 
                 </div>
             </div>
@@ -4148,8 +4147,59 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         </div>
     </div>
 
-</body>
+
  <script>
+    // ---- performance: lazy option lists ----------------------------------------------------------------
+    // Every team card has three long <select>s (Prediction, Bet Market, stats Market). Rendering all their options
+    // for dozens of cards made the page freeze for seconds. A card now renders only the empty + the currently
+    // selected option and carries data-lazy-select="1"; the full list is filled the first time anything needs it:
+    // the picker opening, any read of select.options, or a programmatic select.value / selectedIndex change.
+    // (declared with var/function so they exist before the first card renders)
+    var __selOptionsDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'options');
+    var __selValueDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+    var __selIndexDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+    window.__nativeSelectOptions = function (el) { return __selOptionsDesc.get.call(el); };
+    function isLazySelect(el) { return !!el && el.getAttribute && el.getAttribute('data-lazy-select') === '1'; }
+    function fillLazySelect(el) {
+        if (!isLazySelect(el)) return;
+        el.removeAttribute('data-lazy-select');           // first, so nothing below can re-enter
+        try {
+            const current = __selValueDesc.get.call(el);
+            let m = /^(prediction|market)(\d+)$/.exec(el.id || '');
+            let html = null;
+            if (m) {
+                const team = extractedTeams[Number(m[2])];
+                if (team) {
+                    const match = (typeof getTeamStoredMatch === 'function') ? getTeamStoredMatch(team) : null;
+                    html = renderMarketOptionsHtml(team, match && match.match_id, m[1] === 'prediction' ? 'Select Prediction' : 'Select Bet Market');
+                }
+            } else if (/^teamCardMarketSelect_\d+$/.test(el.id || '')) {
+                html = statMarketOptionsHtml(current);
+            }
+            if (html !== null) {
+                el.innerHTML = html;
+                if (current && Array.prototype.some.call(__selOptionsDesc.get.call(el), o => o.value === current)) __selValueDesc.set.call(el, current);
+            }
+        } catch (e) { console.warn('Could not fill dropdown options', e); }
+    }
+    Object.defineProperty(HTMLSelectElement.prototype, 'options', {
+        configurable: true, enumerable: __selOptionsDesc.enumerable,
+        get: function () { if (isLazySelect(this)) fillLazySelect(this); return __selOptionsDesc.get.call(this); }
+    });
+    Object.defineProperty(HTMLSelectElement.prototype, 'value', {
+        configurable: true, enumerable: __selValueDesc.enumerable,
+        get: function () { return __selValueDesc.get.call(this); },
+        set: function (v) { if (isLazySelect(this)) fillLazySelect(this); __selValueDesc.set.call(this, v); }
+    });
+    Object.defineProperty(HTMLSelectElement.prototype, 'selectedIndex', {
+        configurable: true, enumerable: __selIndexDesc.enumerable,
+        get: function () { return __selIndexDesc.get.call(this); },
+        set: function (v) { if (isLazySelect(this)) fillLazySelect(this); __selIndexDesc.set.call(this, v); }
+    });
+    // chatty console output inside per-card lookups cost seconds on big pages; flip DEBUG_LOG to true to get it back
+    window.DEBUG_LOG = false;
+    function debugLog() { if (window.DEBUG_LOG) console.log.apply(console, arguments); }
+
     // API configuration
     const API_BASE_URL = 'https://flashscore4.p.rapidapi.com/api/flashscore/v2';   // API V2
     // The RapidAPI key is NOT stored in this file: you paste it once into the "RapidAPI key" field (Step 1) and it is
@@ -6601,14 +6651,14 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
             }
         });
         
-        console.log(`Organized ${fixtures.length} fixtures for ${Object.keys(tournamentFixtures.byTeam).length} teams`);
+        debugLog(`Organized ${fixtures.length} fixtures for ${Object.keys(tournamentFixtures.byTeam).length} teams`);
     }
     
     // Function to get team fixtures with multiple strategies
     function getTeamFixtures(teamName) {
         // Strategy 1: Use organized by-team structure first (fastest)
         if (tournamentFixtures.byTeam && tournamentFixtures.byTeam[teamName]) {
-            console.log(`Found ${tournamentFixtures.byTeam[teamName].length} organized fixtures for ${teamName}`);
+            debugLog(`Found ${tournamentFixtures.byTeam[teamName].length} organized fixtures for ${teamName}`);
             return tournamentFixtures.byTeam[teamName];
         }
         
@@ -6617,7 +6667,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         for (const [storedTeamName, fixtures] of Object.entries(tournamentFixtures.byTeam || {})) {
             if (storedTeamName.toLowerCase().includes(teamNameLower) || 
                 teamNameLower.includes(storedTeamName.toLowerCase())) {
-                console.log(`Found ${fixtures.length} partial-match fixtures for ${teamName} (matched: ${storedTeamName})`);
+                debugLog(`Found ${fixtures.length} partial-match fixtures for ${teamName} (matched: ${storedTeamName})`);
                 return fixtures;
             }
         }
@@ -6629,7 +6679,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
             });
             
             if (filteredFixtures.length > 0) {
-                console.log(`Found ${filteredFixtures.length} filtered fixtures for ${teamName}`);
+                debugLog(`Found ${filteredFixtures.length} filtered fixtures for ${teamName}`);
                 return filteredFixtures;
             }
         }
@@ -6637,13 +6687,13 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         // Strategy 4: Try to fetch fixtures using team ID
         const teamId = getTeamId(teamName);
         if (teamId) {
-            console.log(`Team ID available for ${teamName}, but no fixtures cached. Use "Refresh Fixtures" button.`);
+            debugLog(`Team ID available for ${teamName}, but no fixtures cached. Use "Refresh Fixtures" button.`);
             // Store for future reference
             if (!tournamentFixtures.byTeamId[teamId]) {
                 tournamentFixtures.byTeamId[teamId] = [];
             }
         } else {
-            console.log(`No team ID available for ${teamName}, cannot fetch specific fixtures`);
+            debugLog(`No team ID available for ${teamName}, cannot fetch specific fixtures`);
         }
         
         return [];
@@ -6658,7 +6708,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         }
         
         if (!teamFixtures || teamFixtures.length === 0) {
-            console.log(`No fixtures found for ${teamName}`);
+            debugLog(`No fixtures found for ${teamName}`);
             return null;
         }
         
@@ -6672,11 +6722,11 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         // Sort by timestamp (earliest first) and return the next fixture
         if (futureFixtures.length > 0) {
             const nextFixture = futureFixtures.sort((a, b) => a.timestamp - b.timestamp)[0];
-            console.log(`Found next fixture for ${teamName}: ${nextFixture.home_team?.name} vs ${nextFixture.away_team?.name} on ${new Date(nextFixture.timestamp * 1000).toLocaleDateString()}`);
+            debugLog(`Found next fixture for ${teamName}: ${nextFixture.home_team?.name} vs ${nextFixture.away_team?.name} on ${new Date(nextFixture.timestamp * 1000).toLocaleDateString()}`);
             return nextFixture;
         }
         
-        console.log(`No future fixtures found for ${teamName}`);
+        debugLog(`No future fixtures found for ${teamName}`);
         return null;
     }
     
@@ -7178,7 +7228,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                 tournament_stage_id: tournamentIds.tournament_stage_id
             };
             
-            console.log(`Stored ${standings.length} teams for ${displayName} in completeApiStandings`);
+            debugLog(`Stored ${standings.length} teams for ${displayName} in completeApiStandings`);
             
             // NEW (diagnostic): log one raw team object as the API actually
             // sent it, so we can check whether it carries a group/stage
@@ -7187,7 +7237,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
             // Open the browser console after loading a grouped tournament's
             // standings to see this.
             if (standings.length > 0) {
-                console.log('Sample raw standings team object (check for a group/stage field):', JSON.stringify(standings[0], null, 2));
+                debugLog('Sample raw standings team object (check for a group/stage field):', JSON.stringify(standings[0], null, 2));
             }
             
             // Save to localStorage
@@ -7224,7 +7274,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
             }
         });
         saveTeamIdMap();
-        console.log('Team ID mapping updated:', teamIdMap);
+        debugLog('Team ID mapping updated:', teamIdMap);
     }
 
     // NEW: Splits the standings into contiguous runs wherever points jump
@@ -7306,7 +7356,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         // NEW (diagnostic): always log what the detector found, so a failed
         // detection is debuggable instead of silently invisible. Check the
         // browser console after loading a grouped tournament's standings.
-        console.log('Group detection result (points-only):', {
+        debugLog('Group detection result (points-only):', {
             confident,
             forcedByUser: forceGroup,
             willGroup: shouldGroup,
@@ -8225,7 +8275,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         showApiLoading(true);
         hideApiError();
         
-        console.log('Fetching odds for match:', matchId);
+        debugLog('Fetching odds for match:', matchId);
         
         try {
             const response = await apiFetch(v2OddsUrl(matchId), {
@@ -8233,14 +8283,14 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                 headers: API_HEADERS
             });
             
-            console.log('Odds response status:', response.status);
+            debugLog('Odds response status:', response.status);
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch match odds: ${response.status} ${response.statusText}`);
             }
             
             const odds = await response.json();
-            console.log('Odds data received:', odds);
+            debugLog('Odds data received:', odds);
             
             rememberMatchOdds(matchId, odds);   // live odds + shared market list + saved price snapshot
             showApiLoading(false);
@@ -8265,12 +8315,12 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         const teamId = getTeamId(teamName);
         
         if (!teamId) {
-            console.log(`No team ID available for ${teamName}`);
+            debugLog(`No team ID available for ${teamName}`);
             showAlert(`No team ID available for ${teamName}. Cannot fetch specific fixtures.`, 'warning');
             return [];
         }
         
-        console.log(`Fetching fixtures for team: ${teamName} (ID: ${teamId})`);
+        debugLog(`Fetching fixtures for team: ${teamName} (ID: ${teamId})`);
         
         try {
             const response = await apiFetch(`${API_BASE_URL}/teams/fixtures?team_id=${encodeURIComponent(teamId)}&page=1`, {
@@ -8278,7 +8328,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                 headers: API_HEADERS
             });
             
-            console.log(`Fixtures response for ${teamName}:`, response.status);
+            debugLog(`Fixtures response for ${teamName}:`, response.status);
             
             lastFixturesFetchStatus = response.status;   // lets the bulk refresh notice a rate limit (this function swallows errors)
             if (!response.ok) {
@@ -8286,7 +8336,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
             }
             
             const fixtures = await response.json();
-            console.log(`Fixtures data for ${teamName}:`, fixtures);
+            debugLog(`Fixtures data for ${teamName}:`, fixtures);
             
             // Store fixtures in tournamentFixtures
             if (!tournamentFixtures.byTeamId[teamId]) {
@@ -8314,10 +8364,10 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                 }
                 tournamentFixtures.byTeam[teamName] = leagueFixtures;
                 
-                console.log(`Found ${leagueFixtures.length} league fixtures for ${teamName}`);
+                debugLog(`Found ${leagueFixtures.length} league fixtures for ${teamName}`);
                 return leagueFixtures;
             } else {
-                console.log(`No league fixtures found for ${teamName}`);
+                debugLog(`No league fixtures found for ${teamName}`);
                 return [];
             }
             
@@ -11513,6 +11563,30 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
     // for any team/opponent name shown in the table that isn't cached yet.
     // Each completed fetch triggers a re-render so its dots appear in place
     // without needing to reload the whole table manually.
+    // True while the person is typing in / choosing from a field: a background redraw would wipe it.
+    function isUserEditingField() {
+        const a = document.activeElement;
+        if (!a || a === document.body) return false;
+        const tag = a.tagName;
+        if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+        if (tag === 'INPUT') return !/^(checkbox|radio|button|submit|reset|file|range|color)$/i.test(a.type || 'text');
+        return !!a.isContentEditable;
+    }
+    // Form loads finish one by one; each used to redraw every card and the table (N loads x N cards = freeze).
+    // Now they are coalesced: redraw once things go quiet (max 1.5 s wait), and not at all while editing.
+    let formRefreshTimer = null, formRefreshFirstAt = 0;
+    function scheduleFormRefresh() {
+        const now = Date.now();
+        if (!formRefreshFirstAt) formRefreshFirstAt = now;
+        clearTimeout(formRefreshTimer);
+        formRefreshTimer = setTimeout(runFormRefresh, Math.max(0, Math.min(400, formRefreshFirstAt + 1500 - now)));
+    }
+    function runFormRefresh() {
+        formRefreshTimer = null;
+        if (isUserEditingField()) { formRefreshTimer = setTimeout(runFormRefresh, 1000); return; }
+        formRefreshFirstAt = 0;
+        try { renderTeamsTable(); displaySelectedTeams(); } catch (e) { console.warn('Refresh failed', e); }
+    }
     async function ensureTeamFormsLoaded(teams) {
         const names = new Set();
         const partnerOf = {}; // NEW: name -> a known partner name (opponent/team pairing) in the same league
@@ -11538,8 +11612,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
             computeTeamForm(name, partnerOf[name])
                 .then(() => {
                     formFetchInProgress.delete(inFlightKey);
-                    renderTeamsTable(); // refresh so this name's dots show up
-                    displaySelectedTeams(); // NEW: also refresh team cards (Over/Under 2.5, etc.)
+                    scheduleFormRefresh(); // one batched refresh instead of a full re-render per team
                 })
                 .catch(() => {
                     formFetchInProgress.delete(inFlightKey);
@@ -12737,7 +12810,7 @@ async function handlePredictionChange(teamIndex, prediction, matchId) {
         }
         
         marketSelect.value = prediction;
-        extractedTeams[teamIndex].betMarket = PREDICTION_LABELS[prediction] || prediction;
+        if (extractedTeams[teamIndex]) extractedTeams[teamIndex].betMarket = PREDICTION_LABELS[prediction] || prediction;
         saveExtractedTeams();
         renderTeamsTable(); // keep the Teams Table's Bet Market column in sync live
     }
@@ -12748,9 +12821,11 @@ async function handlePredictionChange(teamIndex, prediction, matchId) {
         return;
     }
     
-    // Show loading state
-    oddsInput.placeholder = "Loading odds...";
-    oddsInput.disabled = true;
+    // Show loading state (the card's odds box may not be in the DOM, e.g. card re-rendered or filtered out)
+    if (oddsInput) {
+        oddsInput.placeholder = "Loading odds...";
+        oddsInput.disabled = true;
+    }
     
     try {
         // Fetch match odds if not already cached
@@ -12775,9 +12850,10 @@ async function handlePredictionChange(teamIndex, prediction, matchId) {
         const oddsValue = getOddsForPrediction(matchOdds, prediction);
         
         if (oddsValue) {
-            oddsInput.value = oddsValue;
+            const liveOddsInput = document.getElementById(`odds${teamIndex}`);
+            if (liveOddsInput) liveOddsInput.value = oddsValue;
             updateTeamOdds(teamIndex, oddsValue);
-            showAlert(`Odds for ${prediction.replace('_', ' ')} set to ${oddsValue}`, 'success');
+            showAlert(`Odds for ${String(prediction).replace('_', ' ')} set to ${oddsValue}`, 'success');
         } else {
             showAlert(`Bet Market set to ${PREDICTION_LABELS[prediction] || prediction}, but no live odds are available for it yet.`, 'warning');
         }
@@ -12786,8 +12862,11 @@ async function handlePredictionChange(teamIndex, prediction, matchId) {
         console.error('Error fetching odds:', error);
         showAlert(`Bet Market set, but couldn't load odds: ${error.message}`, 'danger');
     } finally {
-        oddsInput.disabled = false;
-        oddsInput.placeholder = "e.g., 2.50";
+        const liveOddsInput = document.getElementById(`odds${teamIndex}`);
+        if (liveOddsInput) {
+            liveOddsInput.disabled = false;
+            liveOddsInput.placeholder = "e.g., 2.50";
+        }
     }
 }
 
@@ -15517,7 +15596,7 @@ function loadTeamIdMap() {
             const parsedMap = JSON.parse(storedMap);
             if (isPlainObject(parsedMap)) {
                 teamIdMap = parsedMap;
-                console.log('Loaded team ID mapping:', teamIdMap);
+                debugLog('Loaded team ID mapping:', teamIdMap);
             }
         }
     } catch (error) {
@@ -15543,7 +15622,7 @@ function loadCompleteApiStandings() {
             const parsedStandings = JSON.parse(storedStandings);
             if (isPlainObject(parsedStandings)) {
                 completeApiStandings = parsedStandings;
-                console.log('Loaded complete API standings:', completeApiStandings);
+                debugLog('Loaded complete API standings:', completeApiStandings);
             }
         }
     } catch (error) {
@@ -16789,13 +16868,13 @@ function displayParsedTable(teams, enablePointFilter = false, maxPointDifference
 
 // FIXED: Enhanced findOpponentData function to search in complete API standings
 function findOpponentData(opponentName, country) {
-    console.log(`Searching for opponent: "${opponentName}" in country: "${country}"`);
+    debugLog(`Searching for opponent: "${opponentName}" in country: "${country}"`);
     
     // Phase 1: Exact match in extracted teams (same country)
     for (const team of extractedTeams) {
         if (team.team.toLowerCase() === opponentName.toLowerCase() && 
             (!country || team.country === country)) {
-            console.log(`Found exact match in extracted teams: ${team.team}`);
+            debugLog(`Found exact match in extracted teams: ${team.team}`);
             return team;
         }
     }
@@ -16804,7 +16883,7 @@ function findOpponentData(opponentName, country) {
     for (const team of extractedTeams) {
         if (team.team.toLowerCase().includes(opponentName.toLowerCase()) && 
             (!country || team.country === country)) {
-            console.log(`Found partial match in extracted teams: ${team.team}`);
+            debugLog(`Found partial match in extracted teams: ${team.team}`);
             return team;
         }
     }
@@ -16812,7 +16891,7 @@ function findOpponentData(opponentName, country) {
     // Phase 3: Any match in extracted teams (ANY country)
     for (const team of extractedTeams) {
         if (team.team.toLowerCase() === opponentName.toLowerCase()) {
-            console.log(`Found exact match in any extracted team: ${team.team}`);
+            debugLog(`Found exact match in any extracted team: ${team.team}`);
             return team;
         }
     }
@@ -16839,7 +16918,7 @@ function findOpponentData(opponentName, country) {
                 
                 // Check exact match
                 if (teamName.toLowerCase() === opponentName.toLowerCase()) {
-                    console.log(`Found exact match in saved table: ${teamName}`);
+                    debugLog(`Found exact match in saved table: ${teamName}`);
                     return {
                         pos: parseInt(pos),
                         team: teamName,
@@ -16856,7 +16935,7 @@ function findOpponentData(opponentName, country) {
                 // Check partial match
                 if (teamName.toLowerCase().includes(opponentName.toLowerCase()) || 
                     opponentName.toLowerCase().includes(teamName.toLowerCase())) {
-                    console.log(`Found partial match in saved table: ${teamName}`);
+                    debugLog(`Found partial match in saved table: ${teamName}`);
                     return {
                         pos: parseInt(pos),
                         team: teamName,
@@ -16878,12 +16957,12 @@ function findOpponentData(opponentName, country) {
         const leagueData = completeApiStandings[country];
         const standings = leagueData.standings || [];
         
-        console.log(`Searching in API standings for ${country}: ${standings.length} teams`);
+        debugLog(`Searching in API standings for ${country}: ${standings.length} teams`);
         
         for (const team of standings) {
             // Exact match
             if (team.name && team.name.toLowerCase() === opponentName.toLowerCase()) {
-                console.log(`Found exact match in API standings: ${team.name}`);
+                debugLog(`Found exact match in API standings: ${team.name}`);
                 const [goalsFor, goalsAgainst] = team.goals ? team.goals.split(':') : [0, 0];
                 return {
                     pos: standings.indexOf(team) + 1,
@@ -16904,7 +16983,7 @@ function findOpponentData(opponentName, country) {
             // Partial match
             if (team.name && (team.name.toLowerCase().includes(opponentName.toLowerCase()) || 
                 opponentName.toLowerCase().includes(team.name.toLowerCase()))) {
-                console.log(`Found partial match in API standings: ${team.name}`);
+                debugLog(`Found partial match in API standings: ${team.name}`);
                 const [goalsFor, goalsAgainst] = team.goals ? team.goals.split(':') : [0, 0];
                 return {
                     pos: standings.indexOf(team) + 1,
@@ -16930,7 +17009,7 @@ function findOpponentData(opponentName, country) {
             const standings = leagueData.standings || [];
             for (const team of standings) {
                 if (team.name && team.name.toLowerCase() === opponentName.toLowerCase()) {
-                    console.log(`Found match in API league ${leagueName}: ${team.name}`);
+                    debugLog(`Found match in API league ${leagueName}: ${team.name}`);
                     const [goalsFor, goalsAgainst] = team.goals ? team.goals.split(':') : [0, 0];
                     return {
                         pos: standings.indexOf(team) + 1,
@@ -16951,12 +17030,13 @@ function findOpponentData(opponentName, country) {
         }
     }
     
-    console.warn(`Opponent "${opponentName}" not found in any league${country ? ` (looking in ${country})` : ''}`);
+    debugLog(`Opponent "${opponentName}" not found in any league${country ? ` (looking in ${country})` : ''}`);
     return null;
 }
 
 // UPDATED: displaySelectedTeams function to include API toggle, fixture details, and PREDICTION DROPDOWN
 function displaySelectedTeams() {
+    marketChoicesPassCache = new Map(); // memo for this render pass only
     // NEW: Step 3 (Betting Configuration) is available as soon as there are teams. It used to open only after
     // "Generate Betting Slips" succeeded - but its Bet Source dropdown lives inside it, so a remembered source that
     // couldn't supply two picks (e.g. Auto engine / Engine predictions with nothing analysed) kept it shut for good.
@@ -17202,9 +17282,9 @@ function displaySelectedTeams() {
                     <div style="font-size: 13px; margin: 6px 0; padding: 6px 8px; background: rgba(40,167,69,0.08); border-radius: 5px;">
                         <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
                             <label for="teamCardMarketSelect_${globalIndex}" style="font-size: 12px; color: #495057; white-space: nowrap;">Market:</label>
-                            <select id="teamCardMarketSelect_${globalIndex}" onchange="setTeamCardMarketView(${globalIndex}, this.value, undefined)"
+                            <select id="teamCardMarketSelect_${globalIndex}" data-lazy-select="1" onchange="setTeamCardMarketView(${globalIndex}, this.value, undefined)"
                                     style="flex: 2; min-width: 120px; padding: 3px 6px; border-radius: 5px; border: 1px solid #ced4da; font-size: 12px;">
-                                ${statMarketOptionsHtml(team.marketView || defaultTeamCardMarketView)}
+                                ${lazyStatMarketOptionsHtml(team.marketView || defaultTeamCardMarketView)}
                             </select>
                             <select id="teamCardMarketScopeSelect_${globalIndex}" onchange="setTeamCardMarketView(${globalIndex}, undefined, this.value)"
                                     style="flex: 1; min-width: 90px; padding: 3px 6px; border-radius: 5px; border: 1px solid #ced4da; font-size: 12px;">
@@ -17275,8 +17355,8 @@ function displaySelectedTeams() {
                     <!-- FIXED: ADD PREDICTION DROPDOWN -->
                     <div class="input-group" style="margin-top: 15px;">
                         <label for="prediction${globalIndex}">Prediction:</label>
-                        <select id="prediction${globalIndex}" class="odds-input" onchange="handlePredictionChange(${globalIndex}, this.value, '${matchId}')">
-                            ${renderMarketOptionsHtml(team, matchId, 'Select Prediction')}
+                        <select id="prediction${globalIndex}" class="odds-input" data-lazy-select="1" onchange="handlePredictionChange(${globalIndex}, this.value, '${matchId}')">
+                            ${lazyMarketOptionsHtml(team, matchId, 'Select Prediction')}
                         </select>
                     </div>
                     
@@ -17345,9 +17425,9 @@ function displaySelectedTeams() {
                     <!-- Simple Mode Functional UI -->
                     <div id="simpleMode${globalIndex}" style="display: ${isSimpleMode ? 'block' : 'none'};">
                         <label for="market${globalIndex}" style="margin-top: 10px;">Bet Market:</label>
-                        <select id="market${globalIndex}" class="odds-input ${isApiEnabled ? 'api-market-dropdown' : ''}" 
+                        <select id="market${globalIndex}" class="odds-input ${isApiEnabled ? 'api-market-dropdown' : ''}" data-lazy-select="1"
                                 onchange="updateBetMarketAndFetchOdds(${globalIndex}, this.value)">
-                            ${renderMarketOptionsHtml(team, matchId, 'Select Bet Market')}
+                            ${lazyMarketOptionsHtml(team, matchId, 'Select Bet Market')}
                         </select>
                         
                         <label for="odds${globalIndex}">Next Match Odds:</label>
@@ -18124,7 +18204,7 @@ function updateOpponent(teamIndex, opponentName) {
 
 // UPDATED: showOpponentDetails function to accept country parameter
 function showOpponentDetails(opponentName, country = null) {
-    console.log('Searching for opponent:', opponentName, 'in country:', country);
+    debugLog('Searching for opponent:', opponentName, 'in country:', country);
     
     // Try to find opponent data with country context
     let opponentData = null;
@@ -18277,7 +18357,7 @@ function displayOpponentPopup(opponentName, opponentData) {
     let currentLeagueTablePopupContext = null;
 
     function showLeagueTablePopup(countryLeagueName, selectedTeamName = '', opponentTeamName = '', selectedTeamVenue = '') {
-        console.log('Showing league table for:', countryLeagueName, 'tapped team:', selectedTeamName, 'opponent:', opponentTeamName, 'venue:', selectedTeamVenue);
+        debugLog('Showing league table for:', countryLeagueName, 'tapped team:', selectedTeamName, 'opponent:', opponentTeamName, 'venue:', selectedTeamVenue);
         
         // NEW: Work out which team is Home and which is Away so their rows
         // can be banded with distinct colours in the table below.
@@ -19282,7 +19362,7 @@ function filterTeamsTable() {
     const dateStartFilterInput = document.getElementById('dateStartFilterInput').value;
     const dateEndFilterInput = document.getElementById('dateEndFilterInput').value;
     
-    console.log('Filtering with:', { 
+    debugLog('Filtering with:', { 
         searchText, 
         countryFilter, 
         venueFilter, 
@@ -19504,7 +19584,7 @@ function filterTeamsTable() {
                matchesStatus && matchesOpponentPosition && matchesOddsFilters;
     });
     
-    console.log('Filter results:', `${filteredTeamsData.length} teams match all active filters`);
+    debugLog('Filter results:', `${filteredTeamsData.length} teams match all active filters`);
     
     // Show appropriate filter info boxes
     updateFilterInfo(pointDiffFilter, countryFilter, topTeamPointsByCountry, { leaderRangeOn, fixtureRangeOn, exactLeaderOn, exactFixtureOn, exactFixtureValue, fallbackLeagues: leaderFallbackLeagues, skipped: pointDiffSkipped, exactSkipped: pointDiffExactSkipped, rangeDir: pointDiffRangeDir, exactDir: pointDiffExactDir });
@@ -19984,9 +20064,9 @@ function getPointDiffDirection(group) {
 function onPointDiffDirChange(group, which) {
     const p = group === 'exact' ? 'pdExactDir' : 'pdRangeDir';
     const boxes = { above: document.getElementById(p + 'Above'), below: document.getElementById(p + 'Below'), either: document.getElementById(p + 'Either') };
+    if (!boxes[which] || !boxes.above || !boxes.below || !boxes.either) { filterTeamsTable(); return; }
     if (boxes[which].checked) Object.keys(boxes).forEach(k => { if (k !== which) boxes[k].checked = false; });
     else if (!boxes.above.checked && !boxes.below.checked) boxes.either.checked = true;
-    else if (!boxes.above.checked && !boxes.below.checked && !boxes.either.checked) boxes.either.checked = true;
     filterTeamsTable();
 }
 function resetPointDiffDirections() {
@@ -20211,6 +20291,34 @@ function renderMarketOptionsHtml(team, matchId, emptyLabel) {
     });
     return html;
 }
+// Lazy variant used when a card is first drawn: only the empty option + the selected pick (same label the full list
+// gives it). The rest is filled on first use - see fillLazySelect. Choices are memoised per render pass.
+let marketChoicesPassCache = null;
+function lazyMarketOptionsHtml(team, matchId, emptyLabel) {
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const sel = team ? team.prediction : '';
+    let html = `<option value="" ${!sel ? 'selected' : ''}>${esc(emptyLabel)}</option>`;
+    if (sel) {
+        let label = null;
+        try {
+            const key = `${matchId || ''}|${sel}`;
+            let groups = marketChoicesPassCache ? marketChoicesPassCache.get(key) : null;
+            if (!groups) { groups = marketChoicesForTeam(team, matchId); if (marketChoicesPassCache) marketChoicesPassCache.set(key, groups); }
+            for (const g of groups) {
+                const it = g.items.find(i => i.value === sel);
+                if (it) { label = `${it.label}${it.odds ? ` @ ${it.odds}` : ''}`; break; }
+            }
+        } catch (e) { /* fall back to the plain label */ }
+        if (label === null) label = PREDICTION_LABELS[sel] || sel;
+        html += `<option value="${esc(sel)}" selected>${esc(label)}</option>`;
+    }
+    return html;
+}
+function lazyStatMarketOptionsHtml(selectedId) {
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const o = MARKET_OPTIONS.find(x => x.id === selectedId) || MARKET_OPTIONS[0];
+    return o ? `<option value="${esc(o.id)}" selected>${esc(o.label)}</option>` : '';
+}
 // Re-fills both selects of a card (after odds were loaded) without re-rendering the card
 function refreshTeamMarketSelects(teamIndex) {
     const team = extractedTeams[teamIndex];
@@ -20220,6 +20328,10 @@ function refreshTeamMarketSelects(teamIndex) {
     const fill = (id, emptyLabel) => {
         const el = document.getElementById(id);
         if (!el) return;
+        if (isLazySelect(el)) {            // never opened: stay light, the full list is built when it is needed
+            el.innerHTML = lazyMarketOptionsHtml(team, matchId, emptyLabel);
+            return;
+        }
         el.innerHTML = renderMarketOptionsHtml(team, matchId, emptyLabel);
         el.value = team.prediction || '';
     };
@@ -23965,10 +24077,11 @@ function displayBettingSlips(slips, allowDuplicates, eligibleTeamsCount, venueFi
             
             // ---- keep the picker in step with the native select ----
             function sync() {
-                const o = sel.options[indexDesc.get.call(sel)];
+                const nativeOpts = window.__nativeSelectOptions ? window.__nativeSelectOptions(sel) : sel.options;   // reading these must not trigger a lazy fill
+                const o = nativeOpts[indexDesc.get.call(sel)];
                 const text = o ? o.textContent.trim() : '';
                 const isPlaceholder = !o || o.value === '';
-                labelEl.textContent = text || (sel.options[0] ? sel.options[0].textContent.trim() : 'Select');
+                labelEl.textContent = text || (nativeOpts[0] ? nativeOpts[0].textContent.trim() : 'Select');
                 labelEl.classList.toggle('ss-placeholder', isPlaceholder);
                 trigger.disabled = sel.disabled;
             }
