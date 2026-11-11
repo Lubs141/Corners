@@ -1630,6 +1630,16 @@
         .mbd-check { display: flex; align-items: center; gap: 4px; font-size: 13px; }
         .mbd-list { max-height: 420px; overflow-y: auto; margin: 6px 0; }
         .mbd-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 4px; font-weight: 600; font-size: 13px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,.3); position: sticky; top: 0; background: inherit; }
+        .mbd-head-btns { display: inline-flex; gap: 6px; flex-shrink: 0; align-items: center; }
+        .mbd-stand-btn.on { background: #198754; border-color: #198754; color: #fff; }
+        .mbd-stand { margin: 4px 2px 8px; padding: 8px; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; font-size: 12px; }
+        .mbd-stand-note { opacity: .8; }
+        .mbd-stand-scroll { overflow-x: auto; max-width: 100%; }
+        .mbd-stand table { border-collapse: collapse; width: 100%; font-size: 12px; }
+        .mbd-stand th, .mbd-stand td { padding: 3px 5px; text-align: center; white-space: nowrap; border-bottom: 1px solid rgba(128,128,128,.25); }
+        .mbd-stand th:nth-child(2), .mbd-stand td:nth-child(2) { text-align: left; white-space: normal; min-width: 110px; }
+        .mbd-stand td:last-child { font-weight: 700; }
+        .mbd-stand-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
         .mbd-mini { border: 1px solid #adb5bd; background: transparent; color: inherit; border-radius: 10px; padding: 1px 8px; font-size: 11px; cursor: pointer; }
         .mbd-row-match { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 4px; font-size: 13px; border-bottom: 1px dashed rgba(128,128,128,.25); cursor: pointer; }
         .mbd-row-match.mbd-picked { background: rgba(40,167,69,.15); }
@@ -21537,9 +21547,96 @@ function mbdRender() {
                 <span class="mbd-teams">${esc(m.home_team.name)} <small>vs</small> ${esc(m.away_team.name)}</span>
                 ${st ? `<span class="mbd-chip">${esc(st)}</span>` : ''}${od ? `<small class="mbd-odds">${esc(od)}</small>` : ''}</label>`;
         }).join('') : '';
-        return `<div class="mbd-group"><div class="mbd-group-head" data-g="${esc(g.key)}" onclick="mbdToggleGroup(this.dataset.g)"><span>${open ? '▾' : '▸'} ${esc(g.label)} <b>(${g.items.length}${ticked ? `, ${ticked} ticked` : ''})</b></span><button type="button" class="mbd-mini" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdTickGroup(this.dataset.g)" title="Tick / untick every match shown in this competition">all</button></div>${rows}</div>`;
+        return `<div class="mbd-group"><div class="mbd-group-head" data-g="${esc(g.key)}" onclick="mbdToggleGroup(this.dataset.g)"><span>${open ? '▾' : '▸'} ${esc(g.label)} <b>(${g.items.length}${ticked ? `, ${ticked} ticked` : ''})</b></span><span class="mbd-head-btns"><button type="button" class="mbd-mini mbd-stand-btn ${mbdStandings[g.key] ? 'on' : ''}" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdToggleStandings(this.dataset.g)" title="Show this competition's standings table (2 API requests) - you can save it">📊</button><button type="button" class="mbd-mini" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdTickGroup(this.dataset.g)" title="Tick / untick every match shown in this competition">all</button></span></div>${mbdStandingsPanelHtml(g)}${rows}</div>`;
     }).join('');
     mbdUpdateBar();
+}
+// ---- per-competition standings (fetch, preview, save to Saved Tables) ------------------------------------
+const mbdStandings = {};   // group key -> { state: 'loading'|'ok'|'none'|'error', standings, ids, country, name, url, msg }
+function mbdGroupInfo(key) {
+    const items = mbdMatches.filter(m => (m.tournament.tournament_url || m.tournament.full_name) === key);
+    const t = (items[0] || {}).tournament || {};
+    return { url: t.tournament_url || '', country: t.country_name || '', name: t.name || t.full_name || '' };
+}
+function mbdStandingsDisplayName(p) { return p.country ? `${p.country} - ${p.name}` : p.name; }
+function mbdIsStandingsSaved(p) {
+    const dn = mbdStandingsDisplayName(p);
+    return savedTables.some(t => t.displayName === dn && t.source === 'api');
+}
+function mbdStandingsPanelHtml(g) {
+    const p = mbdStandings[g.key];
+    if (!p) return '';
+    const esc = x => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const key = esc(g.key);
+    let body;
+    if (p.state === 'loading') body = '<div class="mbd-stand-note">⏳ Fetching standings…</div>';
+    else if (p.state === 'none') body = `<div class="mbd-stand-note">ℹ️ ${esc(p.msg || 'No standings table is available for this competition.')}</div>`;
+    else if (p.state === 'error') body = `<div class="mbd-stand-note">⚠️ ${esc(p.msg || 'Could not load the standings.')} <button type="button" class="mbd-mini" data-g="${key}" onclick="mbdLoadStandings(this.dataset.g, true)">Retry</button></div>`;
+    else {
+        const rows = p.standings.map((t, i) => {
+            const gf = String(t.goals || '').split(':');
+            const gd = t.goal_difference != null ? t.goal_difference : (gf.length === 2 ? Number(gf[0]) - Number(gf[1]) : '');
+            return `<tr><td>${esc(t.rank || t.position || i + 1)}</td><td>${esc(t.name)}</td><td>${esc(t.matches_played)}</td><td>${esc(t.wins)}</td><td>${esc(t.draws)}</td><td>${esc(t.losses)}</td><td>${esc(gd)}</td><td>${esc(t.points)}</td></tr>`;
+        }).join('');
+        const saved = mbdIsStandingsSaved(p);
+        body = `<div class="mbd-stand-scroll"><table><thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead><tbody>${rows}</tbody></table></div>
+            <div class="mbd-stand-actions"><button type="button" class="mbd-mini" data-g="${key}" onclick="mbdSaveStandings(this.dataset.g)">${saved ? '💾 Update saved table' : '💾 Save table'}</button>
+            ${saved ? '<span class="mbd-stand-note">✅ already in Saved Tables</span>' : ''}<button type="button" class="mbd-mini" data-g="${key}" onclick="mbdToggleStandings(this.dataset.g)">Close</button></div>`;
+    }
+    return `<div class="mbd-stand" onclick="event.stopPropagation()"><b>📊 ${esc(mbdStandingsDisplayName(p))}</b>${body}</div>`;
+}
+async function mbdToggleStandings(key) {
+    if (mbdStandings[key]) { delete mbdStandings[key]; mbdRender(); return; }
+    mbdOpenGroups.add(key);
+    await mbdLoadStandings(key, false);
+}
+async function mbdLoadStandings(key, force) {
+    const info = mbdGroupInfo(key);
+    const p = mbdStandings[key] = Object.assign({ state: 'loading' }, info);
+    mbdRender();
+    try {
+        if (!info.url) { p.state = 'none'; p.msg = 'This competition has no tournament link, so no standings can be fetched.'; return; }
+        // already stored from earlier? show it without spending requests (unless refreshing)
+        const stored = !force && Object.values(completeApiStandings).find(e => e && e.tournament_url === info.url && Array.isArray(e.standings) && e.standings.length);
+        if (stored) { p.state = 'ok'; p.standings = stored.standings; p.ids = { tournament_id: stored.tournament_id, tournament_stage_id: stored.tournament_stage_id }; return; }
+        const ids = await mbdGetJson(`${API_BASE_URL}/tournaments/ids?tournament_url=${encodeURIComponent(info.url)}`);
+        if (!ids || !ids.tournament_id) { p.state = 'none'; p.msg = 'No standings table is available for this competition (typical for cups and friendlies).'; return; }
+        const standings = await mbdGetJson(v2StandingsUrl(ids, 'overall'));
+        if (!Array.isArray(standings) || !standings.length) { p.state = 'none'; p.msg = 'The API returned no standings for this competition.'; return; }
+        p.state = 'ok'; p.standings = standings; p.ids = ids;
+    } catch (e) {
+        p.state = 'error'; p.msg = e && e.rateLimit ? 'API rate limit reached - wait a moment and retry.' : 'Network or API error.';
+    } finally {
+        if (mbdStandings[key] === p) mbdRender();
+    }
+}
+function mbdSaveStandings(key) {
+    const p = mbdStandings[key];
+    if (!p || p.state !== 'ok' || !Array.isArray(p.standings) || !p.standings.length) return;
+    const displayName = mbdStandingsDisplayName(p);
+    try { buildTeamIdMap(p.standings); } catch (e) { /* team ids are optional */ }
+    // same shape the manual Step 1 flow stores, so cards, opponents and the League Table popup find it
+    completeApiStandings[displayName] = {
+        standings: p.standings, timestamp: Date.now(), country: p.country, tournament: p.name,
+        tournament_id: p.ids && p.ids.tournament_id, tournament_stage_id: p.ids && p.ids.tournament_stage_id, tournament_url: p.url
+    };
+    let tableText = 'POS TEAM P W D L GF GA GD PTS\n';
+    p.standings.forEach((t, i) => {
+        const [gf, ga] = String(t.goals || '0:0').split(':');
+        tableText += `${i + 1} ${t.name} ${t.matches_played} ${t.wins} ${t.draws} ${t.losses} ${gf} ${ga} ${t.goal_difference != null ? t.goal_difference : Number(gf) - Number(ga)} ${t.points}\n`;
+    });
+    const existing = savedTables.find(t => t.displayName === displayName && t.source === 'api');
+    if (existing) {
+        Object.assign(existing, { country: p.country, league: p.name, tableData: tableText, savedAt: formatAppDateTime(Date.now()), teamsCount: p.standings.length });
+    } else {
+        savedTables.push({ id: Date.now(), country: p.country, league: p.name, displayName, tableData: tableText,
+            savedAt: formatAppDateTime(Date.now()), teamsCount: p.standings.length, source: 'api' });
+    }
+    saveCompleteApiStandings();
+    saveTablesToStorage();
+    displaySavedTables();
+    showAlert(`Table "${displayName}" saved to Saved Tables.`, 'success');
+    mbdRender();
 }
 function mbdToggleGroup(key) { if (mbdOpenGroups.has(key)) mbdOpenGroups.delete(key); else mbdOpenGroups.add(key); mbdRender(); }
 function mbdToggle(id, checked) {
