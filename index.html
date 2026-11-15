@@ -8471,6 +8471,19 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         try { localStorage.setItem(BULK_PANEL_COLLAPSED_KEY, bulkPanelCollapsed ? '1' : '0'); } catch (e) { /* not remembered */ }
         updateAllTeamsApiToggle();
     }
+    // After matches were added as cards: unfold the "Switch for many teams at once" panel (the visible-league
+    // switches are in it) and bring it into view, so nobody has to scroll down to look for it.
+    function revealBulkPanel() {
+        if (bulkPanelCollapsed) {
+            bulkPanelCollapsed = false;
+            try { localStorage.setItem(BULK_PANEL_COLLAPSED_KEY, '0'); } catch (e) { /* not remembered */ }
+        }
+        updateAllTeamsApiToggle();
+        setTimeout(() => {
+            const panel = document.getElementById('bulkSwitchesPanel');
+            if (panel && panel.style.display !== 'none') panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 150);
+    }
     const BULK_FEATURES = [
         { key: 'api',     flag: 'apiEnabled',  title: '⚡ API Auto-fetch' },
         { key: 'suggest', flag: 'suggestAuto', title: '🔮 Suggested bets: let the suggestion pick for me' },
@@ -21552,6 +21565,7 @@ function mbdRender() {
     mbdUpdateBar();
 }
 // ---- per-competition standings (fetch, preview, save to Saved Tables) ------------------------------------
+const mbdNoTable = new Set();   // competitions the API has no standings for (so they never block adding)
 const mbdStandings = {};   // group key -> { state: 'loading'|'ok'|'none'|'error', standings, ids, country, name, url, msg }
 function mbdGroupInfo(key) {
     const items = mbdMatches.filter(m => (m.tournament.tournament_url || m.tournament.full_name) === key);
@@ -21600,9 +21614,9 @@ async function mbdLoadStandings(key, force) {
         const stored = !force && Object.values(completeApiStandings).find(e => e && e.tournament_url === info.url && Array.isArray(e.standings) && e.standings.length);
         if (stored) { p.state = 'ok'; p.standings = stored.standings; p.ids = { tournament_id: stored.tournament_id, tournament_stage_id: stored.tournament_stage_id }; return; }
         const ids = await mbdGetJson(`${API_BASE_URL}/tournaments/ids?tournament_url=${encodeURIComponent(info.url)}`);
-        if (!ids || !ids.tournament_id) { p.state = 'none'; p.msg = 'No standings table is available for this competition (typical for cups and friendlies).'; return; }
+        if (!ids || !ids.tournament_id) { p.state = 'none'; mbdNoTable.add(key); p.msg = 'No standings table is available for this competition (typical for cups and friendlies).'; return; }
         const standings = await mbdGetJson(v2StandingsUrl(ids, 'overall'));
-        if (!Array.isArray(standings) || !standings.length) { p.state = 'none'; p.msg = 'The API returned no standings for this competition.'; return; }
+        if (!Array.isArray(standings) || !standings.length) { p.state = 'none'; mbdNoTable.add(key); p.msg = 'The API returned no standings for this competition.'; return; }
         p.state = 'ok'; p.standings = standings; p.ids = ids;
     } catch (e) {
         p.state = 'error'; p.msg = e && e.rateLimit ? 'API rate limit reached - wait a moment and retry.' : 'Network or API error.';
@@ -21635,8 +21649,20 @@ function mbdSaveStandings(key) {
     saveCompleteApiStandings();
     saveTablesToStorage();
     displaySavedTables();
-    showAlert(`Table "${displayName}" saved to Saved Tables.`, 'success');
+    const waiting = mbdMatches.filter(m => mbdSelection.has(m.match_id) && (m.tournament.tournament_url || m.tournament.full_name) === key).length;
+    showAlert(`Table "${displayName}" saved to Saved Tables.${waiting ? ` Now tap "Add ticked matches" to add its ${waiting} ticked match${waiting === 1 ? '' : 'es'}.` : ''}`, 'success');
     mbdRender();
+}
+// is this league match's table saved (or is there provably none to save)? Cups and friendlies are always ready.
+function mbdLeagueTableReady(m, sides) {
+    if (mbdKind(m) !== 'league') return true;
+    const t = m.tournament || {};
+    const key = t.tournament_url || t.full_name;
+    if (!t.tournament_url || mbdNoTable.has(key)) return true;     // nothing that could be fetched / the API has none
+    const dn = `${t.country_name ? t.country_name + ' - ' : ''}${t.name || ''}`;
+    if (Object.values(completeApiStandings).some(e => e && e.tournament_url === t.tournament_url)) return true;
+    if (completeApiStandings[dn] || savedTables.some(x => x.displayName === dn)) return true;
+    return (sides || ['home_team', 'away_team']).every(k => m[k] && m[k].name && findTeamInLoadedStandings(m[k].name));
 }
 function mbdToggleGroup(key) { if (mbdOpenGroups.has(key)) mbdOpenGroups.delete(key); else mbdOpenGroups.add(key); mbdRender(); }
 function mbdToggle(id, checked) {
@@ -21850,10 +21876,36 @@ async function mbdAutoFetchTables(stubs) {
 
 async function mbdAddTicked() {
     if (mbdBusy) return;
-    const ticked = mbdMatches.filter(m => mbdSelection.has(m.match_id)).sort((a, b) => a.timestamp - b.timestamp);
-    if (!ticked.length) { showAlert('Tick one or more matches first.', 'warning'); return; }
+    const allTicked = mbdMatches.filter(m => mbdSelection.has(m.match_id)).sort((a, b) => a.timestamp - b.timestamp);
+    if (!allTicked.length) { showAlert('Tick one or more matches first.', 'warning'); return; }
     const side = (document.getElementById('mbdSide') || {}).value || 'both';
     const sides = side === 'home' ? ['home_team'] : side === 'away' ? ['away_team'] : ['home_team', 'away_team'];
+    // League matches are only added once their league table is saved (cards need it for position, form and stats).
+    // Cups/friendlies have no table to wait for, and "Auto-fetch & save league tables" saves them as part of adding.
+    let ticked = allTicked, heldBackMsg = '';
+    if (!mbdAutoTablesOn()) {
+        const blocked = new Map();      // group key -> { label, count }
+        ticked = allTicked.filter(m => {
+            if (mbdLeagueTableReady(m, sides)) return true;
+            const key = m.tournament.tournament_url || m.tournament.full_name;
+            const b = blocked.get(key) || { label: m.tournament.full_name || m.tournament.name, count: 0 };
+            b.count++; blocked.set(key, b);
+            return false;
+        });
+        if (blocked.size) {
+            const names = [...blocked.values()].map(b => `${b.label} (${b.count})`).join(', ');
+            blocked.forEach((b, key) => mbdOpenGroups.add(key));
+            heldBackMsg = `Not added yet - save the league table first: ${names}. Tap 📊 on the competition, then "Save table", then add again. (Their ticks are kept.)`;
+            if (!ticked.length) showAlert(heldBackMsg, 'warning');
+            mbdRender();
+            const keys = [...blocked.keys()].filter(k => !mbdStandings[k]).slice(0, 3);   // open the first tables for you (2 requests each)
+            if (!ticked.length) {
+                for (const k of keys) { await mbdLoadStandings(k, false); await new Promise(r => setTimeout(r, 250)); }
+                return;
+            }
+            (async () => { for (const k of keys) { await mbdLoadStandings(k, false); await new Promise(r => setTimeout(r, 250)); } })();
+        }
+    }
     let added = 0, updated = 0, same = 0, lastLabel = '', groupSaved = false;
     const stubs = [];                   // cards created without a league table: { team, match }
     const touched = [];
@@ -21890,8 +21942,10 @@ async function mbdAddTicked() {
     displaySelectedTeams();
     const section = document.getElementById('teamsSection'); if (section) section.classList.remove('hidden');
     showAlert(`${added} card${added === 1 ? '' : 's'} added${updated ? `, ${updated} existing card${updated === 1 ? '' : 's'} switched to the ticked match` : ''}${same ? `, ${same} already on this match` : ''}.${added && touched.some(t => t.cupOnly) ? ' Teams whose league table isn\'t loaded have no position or points.' : ''}`, 'success');
-    mbdSelection.clear();
+    if (heldBackMsg && ticked.length) setTimeout(() => showAlert(heldBackMsg, 'warning'), 600);   // after the 'cards added' note
+    ticked.forEach(m => mbdSelection.delete(m.match_id));   // keep the ticks of matches that were held back
     mbdRender();
+    if (touched.length) revealBulkPanel();                  // show the switches (incl. the visible-league ones) right away
     if (mbdAutoTablesOn() && stubs.length) await mbdAutoFetchTables(stubs);   // NEW: fetch + save the league tables of the added teams
     // optional: odds for each card's own match (the normal Auto-fetch would swap a cup match for the team's league fixture)
     if ((document.getElementById('mbdLoadOdds') || {}).checked && touched.length) {
