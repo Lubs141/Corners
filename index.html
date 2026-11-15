@@ -1630,6 +1630,9 @@
         .mbd-check { display: flex; align-items: center; gap: 4px; font-size: 13px; }
         .mbd-list { max-height: 420px; overflow-y: auto; margin: 6px 0; }
         .mbd-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 4px; font-weight: 600; font-size: 13px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,.3); position: sticky; top: 0; background: inherit; }
+        .mkt-scroll { max-height: 6.4em; min-width: 150px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 4px; text-align: left; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; padding: 2px 4px; }
+        .mkt-scroll > div { padding: 1px 0; }
+        .mkt-count { display: block; opacity: .65; position: sticky; bottom: 0; }
         .mbd-head-btns { display: inline-flex; gap: 6px; flex-shrink: 0; align-items: center; }
         .mbd-stand-btn.on { background: #198754; border-color: #198754; color: #fff; }
         .mbd-stand { margin: 4px 2px 8px; padding: 8px; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; font-size: 12px; }
@@ -3509,7 +3512,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 <button type="button" id="oddsMarketBtn_team" class="ms-btn" onclick="toggleOddsMarketPanel('team')" aria-expanded="false" aria-controls="oddsMarketPanel_team">No market (filter off)  ▾</button>
 <div id="oddsMarketPanel_team" class="ms-panel hidden">
 <input type="text" id="oddsMarketSearch_team" placeholder="🔍 Search markets..." oninput="renderOddsMarketList('team')" style="width: 100%; padding: 8px; margin-bottom: 6px;">
-<div style="display: flex; gap: 6px; margin-bottom: 6px;"><button type="button" class="btn btn-secondary btn-small" onclick="selectShownOddsMarkets('team')">Select shown</button> <button type="button" class="btn btn-secondary btn-small" onclick="clearOddsMarkets('team', true)">Clear</button> <button type="button" class="btn btn-secondary btn-small" onclick="toggleOddsMarketPanel('team', false)">Hide list</button></div>
+<div style="display: flex; gap: 6px; margin-bottom: 6px;"><button type="button" id="oddsMarketAllBtn_team" class="btn btn-secondary btn-small" onclick="toggleAllOddsMarkets('team')" title="Use EVERY market in this list with the min/max odds and scores below (also markets that appear later)">✅ All markets</button> <button type="button" class="btn btn-secondary btn-small" onclick="selectShownOddsMarkets('team')">Select shown</button> <button type="button" class="btn btn-secondary btn-small" onclick="clearOddsMarkets('team', true)">Clear</button> <button type="button" class="btn btn-secondary btn-small" onclick="toggleOddsMarketPanel('team', false)">Hide list</button></div>
 <div id="oddsMarketList_team" class="league-filter-list"></div>
 </div>
 <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 6px;" title="With several markets ticked: keep a team when ANY of them is inside the limits, or only when ALL of them are">Match <select id="oddsMarketMode_team" onchange="filterTeamsTable()" style="padding: 4px 6px; width: auto;"><option value="any">any ticked market</option><option value="all">all ticked markets</option></select></label>
@@ -3527,7 +3530,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 <button type="button" id="oddsMarketBtn_opponent" class="ms-btn" onclick="toggleOddsMarketPanel('opponent')" aria-expanded="false" aria-controls="oddsMarketPanel_opponent">No market (filter off)  ▾</button>
 <div id="oddsMarketPanel_opponent" class="ms-panel hidden">
 <input type="text" id="oddsMarketSearch_opponent" placeholder="🔍 Search markets..." oninput="renderOddsMarketList('opponent')" style="width: 100%; padding: 8px; margin-bottom: 6px;">
-<div style="display: flex; gap: 6px; margin-bottom: 6px;"><button type="button" class="btn btn-secondary btn-small" onclick="selectShownOddsMarkets('opponent')">Select shown</button> <button type="button" class="btn btn-secondary btn-small" onclick="clearOddsMarkets('opponent', true)">Clear</button> <button type="button" class="btn btn-secondary btn-small" onclick="toggleOddsMarketPanel('opponent', false)">Hide list</button></div>
+<div style="display: flex; gap: 6px; margin-bottom: 6px;"><button type="button" id="oddsMarketAllBtn_opponent" class="btn btn-secondary btn-small" onclick="toggleAllOddsMarkets('opponent')" title="Use EVERY market in this list with the min/max odds and scores below (also markets that appear later)">✅ All markets</button> <button type="button" class="btn btn-secondary btn-small" onclick="selectShownOddsMarkets('opponent')">Select shown</button> <button type="button" class="btn btn-secondary btn-small" onclick="clearOddsMarkets('opponent', true)">Clear</button> <button type="button" class="btn btn-secondary btn-small" onclick="toggleOddsMarketPanel('opponent', false)">Hide list</button></div>
 <div id="oddsMarketList_opponent" class="league-filter-list"></div>
 </div>
 <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 6px;" title="With several markets ticked: keep a team when ANY of them is inside the limits, or only when ALL of them are">Match <select id="oddsMarketMode_opponent" onchange="filterTeamsTable()" style="padding: 4px 6px; width: auto;"><option value="any">any ticked market</option><option value="all">all ticked markets</option></select></label>
@@ -19329,7 +19332,7 @@ function getOtherActiveFilters() {
     if (document.getElementById('matchStatusFilter').value) activeFilters.push('match status');
     if (document.getElementById('minTeamOddsFilterInput').value || document.getElementById('maxTeamOddsFilterInput').value) activeFilters.push('team odds range');
     if (document.getElementById('minOddsScoreFilterInput').value || document.getElementById('maxOddsScoreFilterInput').value) activeFilters.push('odds score range');
-    if (ODDS_MARKET_BLOCKS.some(b => oddsMarketSelections[b.who].size)) activeFilters.push('market odds range');
+    if (ODDS_MARKET_BLOCKS.some(b => oddsMarketSelections[b.who].size || oddsMarketAll[b.who])) activeFilters.push('market odds range');
     
     return activeFilters;
 }
@@ -20869,13 +20872,23 @@ const ODDS_MARKET_BLOCKS = [
     { who: 'opponent', ids: { min: 'oddsMarketOppMinInput', max: 'oddsMarketOppMaxInput', smin: 'oddsMarketOppScoreMinInput', smax: 'oddsMarketOppScoreMaxInput', rel: 'oddsMarketOppRelative', info: 'oddsMarketOppInfo', mode: 'oddsMarketMode_opponent' } }
 ];
 const oddsMarketSelections = { team: new Set(), opponent: new Set() };
+// "All markets": every option of the dropdown counts, whatever is in the list right now (the list grows as odds are loaded)
+const oddsMarketAll = { team: false, opponent: false };
+function allOddsMarketKeys() { return BET_MARKET_OPTIONS.map(o => o.value); }
+// leaving "All" (e.g. by unticking one market) keeps everything else ticked
+function materializeAllOddsMarkets(who) {
+    if (!oddsMarketAll[who]) return;
+    oddsMarketAll[who] = false;
+    oddsMarketSelections[who] = new Set(allOddsMarketKeys());
+}
 const oddsMarketCollapsed = { team: new Set(), opponent: new Set() };   // groups the user folded (everything starts folded)
 const oddsMarketGroupsOpened = { team: new Set(), opponent: new Set() };  // groups the user unfolded
 function getOddsMarketFilterConfigs() {
     return ODDS_MARKET_BLOCKS.map(b => {
-        const keys = [...oddsMarketSelections[b.who]];
+        const isAll = !!oddsMarketAll[b.who];
+        const keys = isAll ? allOddsMarketKeys() : [...oddsMarketSelections[b.who]];
         return {
-            who: b.who, ids: b.ids, keys, key: keys[0] || '',
+            who: b.who, ids: b.ids, keys, isAll, key: keys[0] || '',
             mode: (document.getElementById(b.ids.mode) || {}).value === 'all' ? 'all' : 'any',
             min: parseOptionalNumber(b.ids.min), max: parseOptionalNumber(b.ids.max),
             scoreMin: parseOptionalNumber(b.ids.smin), scoreMax: parseOptionalNumber(b.ids.smax),
@@ -20900,38 +20913,55 @@ function oddsMarketPassOne(team, cfg, key) {
 function teamPassesOddsMarketFilter(team, cfgs) {
     return (cfgs || []).every(cfg => {
         if (!cfg.keys || !cfg.keys.length) return true;
-        const res = cfg.keys.map(k => oddsMarketPassOne(team, cfg, k));
-        return cfg.mode === 'all' ? res.every(Boolean) : res.some(Boolean);
+        if (cfg.mode !== 'all') return cfg.keys.some(k => oddsMarketPassOne(team, cfg, k));
+        if (!cfg.isAll) return cfg.keys.every(k => oddsMarketPassOne(team, cfg, k));
+        // All markets + "all": every market this match actually offers must be inside the limits
+        // (markets the match doesn't offer can't be required, or nothing would ever pass)
+        let offered = 0;
+        for (const k of cfg.keys) {
+            if (oddsMarketPriceForTeam(team, k, cfg.relative, cfg.who).state === 'nomarket') continue;
+            offered++;
+            if (!oddsMarketPassOne(team, cfg, k)) return false;
+        }
+        return offered > 0;
     });
+}
+// the markets of an "All markets" block that are inside the limits for this team (what its table cell shows)
+function oddsMarketPassingKeys(team, cfg) {
+    return cfg.keys.filter(k => oddsMarketPassOne(team, cfg, k));
 }
 function marketLabelForKey(key) {
     return PREDICTION_LABELS[key] || (BET_MARKET_OPTIONS.find(o => o.value === key || o.mk === key) || {}).label || marketKeyLabel(key);
 }
 function oddsMarketHeaderSmall(cfg) {
     if (!cfg || !cfg.keys.length) return '';
-    return '<br><small>' + (cfg.keys.length === 1 ? marketLabelForKey(cfg.keys[0]) : `${cfg.keys.length} markets (${cfg.mode})`) + '</small>';
+    return '<br><small>' + (cfg.isAll ? `All markets (${cfg.mode})` : cfg.keys.length === 1 ? marketLabelForKey(cfg.keys[0]) : `${cfg.keys.length} markets (${cfg.mode})`) + '</small>';
 }
 function oddsMarketHeaderTitle(cfg) {
     if (!cfg || !cfg.keys.length) return '';
+    if (cfg.isAll) return `All ${cfg.keys.length} markets of the list${cfg.relative ? '' : ' (literal match sides)'} - shows the ones inside your limits, click to sort by price`;
     return `${cfg.keys.map(marketLabelForKey).join(' | ')}${cfg.relative ? '' : ' (literal match sides)'} - price and score, click to sort by price`;
 }
 // table cell for the "Team market" / "Opponent market" columns: price + score of each selected market
 function oddsMarketCell(team, cfg) {
     if (!cfg || !cfg.keys.length) return '<span style="color:#6c757d;">-</span>';
     const multi = cfg.keys.length > 1;
-    const parts = cfg.keys.slice(0, 4).map(k => {
+    const shownKeys = cfg.isAll ? oddsMarketPassingKeys(team, cfg) : cfg.keys;      // All: only the markets that pass
+    if (cfg.isAll && !shownKeys.length) return '<span style="color:#6c757d;" title="No market of the list is inside the limits (or no odds loaded)">-</span>';
+    const parts = shownKeys.map(k => {
         const r = oddsMarketPriceForTeam(team, k, cfg.relative, cfg.who);
         const lab = multi ? `<small>${marketLabelForKey(k)}:</small> ` : '';
         if (r.state !== 'ok') return `<div style="white-space:nowrap;">${lab}<span style="color:#6c757d;" title="${r.state === 'nomarket' ? 'This market is not offered for this match' : 'No odds loaded for this match yet'}">-</span></div>`;
         const score = engineScoreForKey(team, r.key);
         return `<div style="white-space:nowrap;">${lab}<strong>${r.price.toFixed(2)}</strong> ${score === null ? '' : renderOddsScoreBadge(score)}</div>`;
     });
-    if (cfg.keys.length > 4) parts.push(`<small>+${cfg.keys.length - 4} more</small>`);
+    // every market is reachable: from 5 markets on the cell scrolls (about 4 rows visible) instead of cutting the list off
+    if (shownKeys.length > 4) return `<div class="mkt-scroll" tabindex="0" title="${shownKeys.length} markets - scroll inside this box">${parts.join('')}<small class="mkt-count">${shownKeys.length} markets</small></div>`;
     return parts.join('');
 }
 function oddsMarketSortValue(team, cfg) {
     if (!cfg || !cfg.keys.length) return null;
-    const prices = cfg.keys.map(k => oddsMarketPriceForTeam(team, k, cfg.relative, cfg.who)).filter(r => r.state === 'ok').map(r => r.price);
+    const prices = (cfg.isAll ? oddsMarketPassingKeys(team, cfg) : cfg.keys).map(k => oddsMarketPriceForTeam(team, k, cfg.relative, cfg.who)).filter(r => r.state === 'ok').map(r => r.price);
     return prices.length ? Math.min(...prices) : null;
 }
 
@@ -20946,6 +20976,14 @@ function renderOddsMarketButton(who) {
     const keys = [...oddsMarketSelections[who]];
     const panel = document.getElementById(`oddsMarketPanel_${who}`);
     const open = panel && !panel.classList.contains('hidden');
+    const allBtn = document.getElementById(`oddsMarketAllBtn_${who}`);
+    if (allBtn) { allBtn.classList.toggle('btn-primary', !!oddsMarketAll[who]); allBtn.classList.toggle('btn-secondary', !oddsMarketAll[who]); allBtn.setAttribute('aria-pressed', oddsMarketAll[who] ? 'true' : 'false'); }
+    if (oddsMarketAll[who]) {
+        btn.textContent = `All markets (${BET_MARKET_OPTIONS.length})` + (open ? '  ▴' : '  ▾');
+        btn.title = 'Every market in the list counts';
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        return;
+    }
     btn.textContent = (keys.length === 0 ? 'No market (filter off)' : keys.length === 1 ? marketLabelForKey(keys[0]) : `${marketLabelForKey(keys[0])} +${keys.length - 1} more`) + (open ? '  ▴' : '  ▾');
     btn.title = keys.length ? keys.map(marketLabelForKey).join('\n') : 'Tap to choose markets';
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -20963,9 +21001,9 @@ function renderOddsMarketList(who) {
     });
     if (!groups.length) { list.innerHTML = '<div style="padding:6px;color:#6c757d;font-size:13px;">No markets match.</div>'; return; }
     list.innerHTML = groups.map(g => {
-        const chosen = g.items.filter(o => oddsMarketSelections[who].has(o.value)).length;
+        const chosen = g.items.filter(o => oddsMarketAll[who] || oddsMarketSelections[who].has(o.value)).length;
         const open = searching || oddsMarketGroupsOpened[who].has(g.label) || chosen > 0 && oddsMarketGroupsOpened[who].has(g.label);
-        const rows = open ? g.items.map(o => `<label class="league-filter-item"><input type="checkbox" ${oddsMarketSelections[who].has(o.value) ? 'checked' : ''} data-v="${esc(o.value)}" onchange="toggleOddsMarket('${who}', this.dataset.v, this.checked)"> <span>${esc(o.label)}</span></label>`).join('') : '';
+        const rows = open ? g.items.map(o => `<label class="league-filter-item"><input type="checkbox" ${oddsMarketAll[who] || oddsMarketSelections[who].has(o.value) ? 'checked' : ''} data-v="${esc(o.value)}" onchange="toggleOddsMarket('${who}', this.dataset.v, this.checked)"> <span>${esc(o.label)}</span></label>`).join('') : '';
         return `<div class="ms-group"><div class="ms-group-head" data-g="${esc(g.label)}" onclick="toggleOddsMarketGroupFold('${who}', this.dataset.g)"><span>${open ? '▾' : '▸'} ${esc(g.label)}${chosen ? ` <b>(${chosen})</b>` : ''}</span><button type="button" class="ms-mini" data-g="${esc(g.label)}" onclick="event.stopPropagation(); selectOddsMarketGroup('${who}', this.dataset.g)" title="Tick / untick every market of this group">all</button></div>${rows}</div>`;
     }).join('');
 }
@@ -20982,12 +21020,20 @@ function toggleOddsMarketGroupFold(who, group) {
     if (s.has(group)) s.delete(group); else s.add(group);
     renderOddsMarketList(who);
 }
+function toggleAllOddsMarkets(who) {
+    oddsMarketAll[who] = !oddsMarketAll[who];
+    if (oddsMarketAll[who]) oddsMarketSelections[who] = new Set();
+    renderOddsMarketList(who); renderOddsMarketButton(who);
+    filterTeamsTable();
+}
 function toggleOddsMarket(who, value, checked) {
+    materializeAllOddsMarkets(who);
     if (checked) oddsMarketSelections[who].add(value); else oddsMarketSelections[who].delete(value);
     renderOddsMarketButton(who);        // the list itself isn't redrawn: no scroll jump while ticking
     filterTeamsTable();
 }
 function selectOddsMarketGroup(who, group) {
+    materializeAllOddsMarkets(who);
     const vals = oddsMarketVisibleOptions(who).filter(o => o.group === group).map(o => o.value);
     const all = vals.every(v => oddsMarketSelections[who].has(v));
     vals.forEach(v => { if (all) oddsMarketSelections[who].delete(v); else oddsMarketSelections[who].add(v); });
@@ -20996,11 +21042,13 @@ function selectOddsMarketGroup(who, group) {
     filterTeamsTable();
 }
 function selectShownOddsMarkets(who) {
+    if (oddsMarketAll[who]) return;           // everything is already included
     oddsMarketVisibleOptions(who).forEach(o => oddsMarketSelections[who].add(o.value));
     renderOddsMarketList(who); renderOddsMarketButton(who);
     filterTeamsTable();
 }
 function clearOddsMarkets(who, refilter) {
+    oddsMarketAll[who] = false;
     oddsMarketSelections[who] = new Set();
     const s = document.getElementById(`oddsMarketSearch_${who}`); if (s) s.value = '';
     renderOddsMarketList(who); renderOddsMarketButton(who);
@@ -21051,7 +21099,7 @@ function updateOddsMarketFilterInfo(sourceTeams, cfgs) {
         if (cfg.min !== null || cfg.max !== null) lim.push(`price ${cfg.min !== null ? cfg.min : '…'}–${cfg.max !== null ? cfg.max : '…'}`);
         if (cfg.scoreMin !== null || cfg.scoreMax !== null) lim.push(`score ${cfg.scoreMin !== null ? cfg.scoreMin : '…'}–${cfg.scoreMax !== null ? cfg.scoreMax : '…'}`);
         const who = cfg.who === 'team' ? 'extracted team' : 'opponent';
-        const what = cfg.keys.length === 1 ? marketLabelForKey(cfg.keys[0]) : `${cfg.keys.length} markets, ${cfg.mode === 'all' ? 'all of them' : 'any of them'}`;
+        const what = cfg.isAll ? `all ${cfg.keys.length} markets, ${cfg.mode === 'all' ? 'every market the match offers' : 'any of them'}` : cfg.keys.length === 1 ? marketLabelForKey(cfg.keys[0]) : `${cfg.keys.length} markets, ${cfg.mode === 'all' ? 'all of them' : 'any of them'}`;
         const parts = [`<strong>${s.inRange}</strong> of ${sourceTeams.length} rows pass for the <strong>${who}</strong>: ${what}${lim.length ? ' (' + lim.join(', ') + ')' : ''}${cfg.relative ? '' : ' [literal match home/away]'}.`];
         if (s.noodds) parts.push(`${s.noodds} without odds loaded (left out).`);
         if (s.nomarket) parts.push(`${s.nomarket} match${s.nomarket === 1 ? '' : 'es'} without ${cfg.keys.length === 1 ? 'this market' : 'any of these markets'} (left out).`);
