@@ -19075,92 +19075,71 @@ function displayOpponentPopup(opponentName, opponentData) {
             currentSortColumn = column;
             currentSortDirection = 'asc';
         }
-        
-        // For opponent position, we need to calculate the value dynamically
-        filteredTeamsData.sort((a, b) => {
-            let aVal, bVal;
-            
-            if (column === 'opponentPosition') {
-                // Special handling for opponent position
-                aVal = getOpponentPositionValue(a);
-                bVal = getOpponentPositionValue(b);
-            } else if (column === 'fixtureGap') {
-                aVal = fixturePointGap(a);
-                bVal = fixturePointGap(b);
-            } else if (column === 'oddsScore') {
-                // NEW: computed on the fly from the prediction model
-                aVal = getTeamOddsScore(a);
-                bVal = getTeamOddsScore(b);
-            } else if (column === 'mktTeam' || column === 'mktOpp') {
-                const mc = getOddsMarketFilterConfigs()[column === 'mktTeam' ? 0 : 1];
-                aVal = oddsMarketSortValue(a, mc);
-                bVal = oddsMarketSortValue(b, mc);
-            } else if (column === 'status') {
-                // NEW: Special handling for status column
-                // CHANGED: same live-aware status the Status column displays
-                aVal = getTeamCurrentMatchStatus(a);
-                bVal = getTeamCurrentMatchStatus(b);
-                
-                // Define status order for logical sorting
-                const statusOrder = { 'started': 1, 'upcoming': 2, 'expired': 3 };
-                aVal = statusOrder[aVal] || 4;
-                bVal = statusOrder[bVal] || 4;
-            } else if (column === 'teamOverUnder25' || column === 'oppOverUnder25') {
-                // CHANGED: sorts by whatever market is currently selected in
-                // the "Table Market Focus" filter (not fixed to Over 2.5 any
-                // more). Data lives in the form cache (keyed by team name),
-                // not directly on the team object, and may not be loaded yet
-                // for every row.
-                const getName = column === 'teamOverUnder25' ? (t => t.team) : (t => t.opponent);
-                const tableMarketId = document.getElementById('tableMarketFilterSelect')?.value || 'total_2.5';
-                const tableMarketScope = document.getElementById('tableMarketScopeFilterSelect')?.value || 'overall';
-                const getMarketPct = (t) => {
-                    const name = getName(t);
-                    const data = name ? getCachedTeamForm(name) : null;
-                    const rate = data ? getTableMarketSortValue(data, tableMarketId, tableMarketScope) : null;
-                    return rate === null ? null : rate * 100;
-                };
-                aVal = getMarketPct(a);
-                bVal = getMarketPct(b);
-            } else if (column === 'teamAvgGoals' || column === 'oppAvgGoals') {
-                // NEW: Sort by average goals scored per match. Same caveat
-                // as above — sourced from the form cache, not the team object.
-                const getName = column === 'teamAvgGoals' ? (t => t.team) : (t => t.opponent);
-                const getAvgScored = (t) => {
-                    const name = getName(t);
-                    const data = name ? getCachedTeamForm(name) : null;
-                    if (!data || data.error || !data.avgGoals || data.avgGoals.matches === 0) return null;
-                    return data.avgGoals.scored;
-                };
-                aVal = getAvgScored(a);
-                bVal = getAvgScored(b);
-            } else {
-                aVal = a[column];
-                bVal = b[column];
-            }
-            
-            if (aVal === '' || aVal === undefined || aVal === null) aVal = currentSortDirection === 'asc' ? Infinity : -Infinity;
-            if (bVal === '' || bVal === undefined || bVal === null) bVal = currentSortDirection === 'asc' ? Infinity : -Infinity;
-            
-            if (typeof aVal === 'string' && !isNaN(aVal) && aVal !== '') {
-                aVal = parseFloat(aVal);
-            }
-            if (typeof bVal === 'string' && !isNaN(bVal) && bVal !== '') {
-                bVal = parseFloat(bVal);
-            }
-            
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return currentSortDirection === 'asc' ? 
-                    aVal.localeCompare(bVal) : 
-                    bVal.localeCompare(aVal);
-            } else {
-                return currentSortDirection === 'asc' ? 
-                    aVal - bVal : 
-                    bVal - aVal;
-            }
-        });
-        
+        applyTableSort();
         renderTeamsTable();
+    }
+
+    // the value a row is sorted by in a column (null = no value)
+    function tableSortValue(team, column, ctx) {
+        if (column === 'odds') return team.odds > 0 ? team.odds : null;                    // 0 = no odds entered: sorts last
+        if (column === 'opponentPosition') return getOpponentPositionValue(team);          // Infinity = unknown
+        if (column === 'fixtureGap') return fixturePointGap(team);
+        if (column === 'oddsScore') return getTeamOddsScore(team);                         // computed by the prediction model
+        if (column === 'mktTeam' || column === 'mktOpp') return oddsMarketSortValue(team, ctx.mktCfgs[column === 'mktTeam' ? 0 : 1]);
+        if (column === 'status') {
+            const statusOrder = { 'started': 1, 'upcoming': 2, 'expired': 3 };
+            return statusOrder[getTeamCurrentMatchStatus(team)] || 4;
+        }
+        if (column === 'teamOverUnder25' || column === 'oppOverUnder25') {
+            // sorts by whatever market the "Table Market Focus" filter has selected; data lives in the form cache
+            const name = column === 'teamOverUnder25' ? team.team : team.opponent;
+            const data = name ? getCachedTeamForm(name) : null;
+            const rate = data ? getTableMarketSortValue(data, ctx.tableMarketId, ctx.tableMarketScope) : null;
+            return rate === null || rate === undefined ? null : rate * 100;
+        }
+        if (column === 'teamAvgGoals' || column === 'oppAvgGoals') {
+            const name = column === 'teamAvgGoals' ? team.team : team.opponent;
+            const data = name ? getCachedTeamForm(name) : null;
+            if (!data || data.error || !data.avgGoals || data.avgGoals.matches === 0) return null;
+            return data.avgGoals.scored;
+        }
+        // W / D / L are shown as % of matches played when that toggle is on: sort by what is displayed
+        if (ctx.showPercentages && (column === 'w' || column === 'd' || column === 'l')) {
+            return team.p > 0 ? Number(team[column]) / Number(team.p) : null;
+        }
+        return team[column];
+    }
+
+    // Sorts filteredTeamsData by currentSortColumn / currentSortDirection. Rows with no value always go last
+    // (in both directions); text compares naturally (Team 2 before Team 10); ties keep their current order.
+    function applyTableSort() {
+        const column = currentSortColumn;
+        if (!column || !Array.isArray(filteredTeamsData)) return;
+        const ctx = {
+            mktCfgs: getOddsMarketFilterConfigs(),
+            tableMarketId: document.getElementById('tableMarketFilterSelect')?.value || 'total_2.5',
+            tableMarketScope: document.getElementById('tableMarketScopeFilterSelect')?.value || 'overall',
+            showPercentages: document.getElementById('showPercentagesToggle')?.checked || false
+        };
+        if ((column === 'mktTeam' || column === 'mktOpp') && !(ctx.mktCfgs[column === 'mktTeam' ? 0 : 1] || {}).key) {
+            currentSortColumn = null; currentSortDirection = 'asc';       // that column is no longer shown
+            return;
+        }
+        const dir = currentSortDirection === 'desc' ? -1 : 1;
+        const norm = v => (typeof v === 'string' && v.trim() !== '' && !isNaN(v)) ? parseFloat(v) : v;
+        const isBlank = v => v === null || v === undefined || v === '' || (typeof v === 'number' && !isFinite(v));
+        const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        const rows = filteredTeamsData.map((t, i) => ({ t, i, v: norm(tableSortValue(t, column, ctx)) }));   // each value worked out once
+        rows.sort((x, y) => {
+            const bx = isBlank(x.v), by = isBlank(y.v);
+            if (bx || by) return bx && by ? x.i - y.i : (bx ? 1 : -1);
+            let c;
+            if (typeof x.v === 'number' && typeof y.v === 'number') c = x.v - y.v;
+            else if (typeof x.v === 'string' && typeof y.v === 'string') c = collator.compare(x.v, y.v);
+            else c = typeof x.v === 'number' ? -1 : 1;                   // numbers before text
+            return c ? c * dir : x.i - y.i;
+        });
+        filteredTeamsData = rows.map(r => r.t);
     }
 
     // Helper function to get opponent position value for sorting
@@ -19510,7 +19489,9 @@ function filterTeamsTable() {
                 }
                 // If both start and end times are specified, match times in the range
                 else if (timeStartFilter !== '' && timeEndFilter !== '') {
-                    matchesTime = team.matchTime >= timeStartFilter && team.matchTime <= timeEndFilter;
+                    matchesTime = timeStartFilter <= timeEndFilter
+                        ? (team.matchTime >= timeStartFilter && team.matchTime <= timeEndFilter)
+                        : (team.matchTime >= timeStartFilter || team.matchTime <= timeEndFilter);   // crosses midnight, e.g. 22:00 -> 02:00
                 }
             }
         }
@@ -19579,16 +19560,16 @@ function filterTeamsTable() {
                 if (opponentData && opponentData.pos) {
                     const opponentPos = opponentData.pos;
                     
-                    // Apply minimum position filter (opponent should be at or above this position - better teams)
-                    if (opponentMinPositionFilter !== '') {
-                        const minPosition = parseInt(opponentMinPositionFilter);
-                        matchesOpponentPosition = matchesOpponentPosition && (opponentPos <= minPosition);
-                    }
-                    
-                    // Apply maximum position filter (opponent should be at or below this position - weaker teams)
-                    if (opponentMaxPositionFilter !== '') {
-                        const maxPosition = parseInt(opponentMaxPositionFilter);
-                        matchesOpponentPosition = matchesOpponentPosition && (opponentPos >= maxPosition);
+                    if (opponentMinPositionFilter !== '' && opponentMaxPositionFilter !== '') {
+                        // BOTH filled = a range, as the label says: opponent between the two positions (either order)
+                        const a = parseInt(opponentMinPositionFilter), b = parseInt(opponentMaxPositionFilter);
+                        matchesOpponentPosition = opponentPos >= Math.min(a, b) && opponentPos <= Math.max(a, b);
+                    } else if (opponentMinPositionFilter !== '') {
+                        // only Min: opponent at or above this position (better teams)
+                        matchesOpponentPosition = opponentPos <= parseInt(opponentMinPositionFilter);
+                    } else if (opponentMaxPositionFilter !== '') {
+                        // only Max: opponent at or below this position (weaker teams)
+                        matchesOpponentPosition = opponentPos >= parseInt(opponentMaxPositionFilter);
                     }
                 } else {
                     // If opponent data not found, exclude this team from results
@@ -19620,14 +19601,8 @@ function filterTeamsTable() {
     updateOpponentPositionFilterInfo(opponentMinPositionFilter, opponentMaxPositionFilter);
     updateOddsMarketFilterInfo(sourceTeams, oddsMarketCfgs);
     
-    // Reset sort when filters change
-    if (searchText || countryFilter.length || venueFilter || marketFilter || betSourceFilter || dateFilter || 
-        timeStartFilter || timeEndFilter || positionFilter || minPositionFilter || maxPositionFilter ||
-        pointDiffFilter || minPointDiffFilter || maxPointDiffFilter || minPointDiffFixture || maxPointDiffFixture || pointDiffFixtureExact || matchStatusFilter || 
-        opponentMinPositionFilter || opponentMaxPositionFilter || oddsFiltersActive || oddsMarketCfgs.some(c => c.key)) {
-        currentSortColumn = null;
-        currentSortDirection = 'asc';
-    }
+    // keep the chosen sort (and its header arrow) when the filters change
+    if (currentSortColumn) applyTableSort();
     
     renderTeamsTable();
 }
