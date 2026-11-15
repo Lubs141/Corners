@@ -1633,6 +1633,8 @@
         .mkt-scroll { max-height: 6.4em; min-width: 150px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 4px; text-align: left; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; padding: 2px 4px; }
         .mkt-scroll > div { padding: 1px 0; }
         .mkt-count { display: block; opacity: .65; position: sticky; bottom: 0; }
+        .mbd-head-label.mbd-added { color: #198754; }
+        body.dark-mode .mbd-head-label.mbd-added, .mbd-head-label.mbd-added.on-dark { color: #5ddc92; }
         .mbd-head-btns { display: inline-flex; gap: 6px; flex-shrink: 0; align-items: center; }
         .mbd-stand-btn.on { background: #198754; border-color: #198754; color: #fff; }
         .mbd-stand { margin: 4px 2px 8px; padding: 8px; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; font-size: 12px; }
@@ -17063,6 +17065,7 @@ function findOpponentData(opponentName, country) {
 // UPDATED: displaySelectedTeams function to include API toggle, fixture details, and PREDICTION DROPDOWN
 function displaySelectedTeams() {
     marketChoicesPassCache = new Map(); // memo for this render pass only
+    try { mbdMarkAddedGroups(); } catch (e) { /* picker not built yet */ }
     // NEW: Step 3 (Betting Configuration) is available as soon as there are teams. It used to open only after
     // "Generate Betting Slips" succeeded - but its Bet Source dropdown lives inside it, so a remembered source that
     // couldn't supply two picks (e.g. Auto engine / Engine predictions with nothing analysed) kept it shut for good.
@@ -21572,6 +21575,7 @@ function mbdRender() {
         list.innerHTML = '<div class="mbd-empty">No matches fit the filters. Tick another type (cups, leagues, friendlies, without odds), tick another status (not started, live, finished), or search for another name.</div>';
         mbdUpdateBar(); return;
     }
+    const addedIdx = mbdAddedIndex();
     list.innerHTML = groups.map((g, gi) => {
         const open = searching || groups.length <= 3 || mbdOpenGroups.has(g.key);
         const ticked = g.items.filter(m => mbdSelection.has(m.match_id)).length;
@@ -21583,9 +21587,56 @@ function mbdRender() {
                 <span class="mbd-teams">${esc(m.home_team.name)} <small>vs</small> ${esc(m.away_team.name)}</span>
                 ${st ? `<span class="mbd-chip">${esc(st)}</span>` : ''}${od ? `<small class="mbd-odds">${esc(od)}</small>` : ''}</label>`;
         }).join('') : '';
-        return `<div class="mbd-group"><div class="mbd-group-head" data-g="${esc(g.key)}" onclick="mbdToggleGroup(this.dataset.g)"><span>${open ? '▾' : '▸'} ${esc(g.label)} <b>(${g.items.length}${ticked ? `, ${ticked} ticked` : ''})</b></span><span class="mbd-head-btns"><button type="button" class="mbd-mini mbd-stand-btn ${mbdStandings[g.key] ? 'on' : ''}" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdToggleStandings(this.dataset.g)" title="Show this competition's standings table (2 API requests) - you can save it">📊</button><button type="button" class="mbd-mini" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdTickGroup(this.dataset.g)" title="Tick / untick every match shown in this competition">all</button></span></div>${mbdStandingsPanelHtml(g)}${rows}</div>`;
+        return `<div class="mbd-group"><div class="mbd-group-head" data-g="${esc(g.key)}" onclick="mbdToggleGroup(this.dataset.g)"><span class="mbd-head-label ${mbdGroupAddedCount(g.items, addedIdx) ? 'mbd-added' : ''}" title="${esc(mbdAddedTitle(mbdGroupAddedCount(g.items, addedIdx), g.items.length))}">${open ? '▾' : '▸'} ${esc(g.label)} <b>(${g.items.length}${ticked ? `, ${ticked} ticked` : ''})</b></span><span class="mbd-head-btns"><button type="button" class="mbd-mini mbd-stand-btn ${mbdStandings[g.key] ? 'on' : ''}" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdToggleStandings(this.dataset.g)" title="Show this competition's standings table (2 API requests) - you can save it">📊</button><button type="button" class="mbd-mini" data-g="${esc(g.key)}" onclick="event.stopPropagation(); mbdTickGroup(this.dataset.g)" title="Tick / untick every match shown in this competition">all</button></span></div>${mbdStandingsPanelHtml(g)}${rows}</div>`;
     }).join('');
     mbdUpdateBar();
+}
+// ---- which competitions already have their teams on the team cards (their header gets another colour) ----
+function mbdAddedIndex() {
+    const byId = new Set(), byName = new Map();      // match ids that are on a card; lower-cased team name -> its cards
+    extractedTeams.forEach(t => {
+        const id = t.fixtureDetails && t.fixtureDetails.match_id;
+        if (id) byId.add(id);
+        const k = String(t.team || '').toLowerCase();
+        if (!byName.has(k)) byName.set(k, []);
+        byName.get(k).push(t);
+    });
+    return { byId, byName };
+}
+// number of matches of the group with a team on the cards (card is on that very match, or the team's card is in this league)
+function mbdGroupAddedCount(items, idx) {
+    let n = 0;
+    for (const m of items) {
+        if (idx.byId.has(m.match_id)) { n++; continue; }
+        const comp = m.tournament || {};
+        const display = `${comp.country_name ? comp.country_name + ' - ' : ''}${comp.name || 'Competition'}`;
+        const hit = ['home_team', 'away_team'].some(k => {
+            const tm = m[k]; if (!tm || !tm.name) return false;
+            const cards = idx.byName.get(tm.name.toLowerCase());
+            if (!cards) return false;
+            const found = findTeamInLoadedStandings(tm.name);
+            const label = found ? found.label : display;
+            return cards.some(c => c.country === label);
+        });
+        if (hit) n++;
+    }
+    return n;
+}
+function mbdAddedTitle(n, total) { return n ? `${n} of ${total} match${total === 1 ? '' : 'es'} already added as team cards` : 'No team of this competition is on the team cards yet'; }
+// cheap refresh of the colours (no re-render): used when cards are added, removed or cleared elsewhere
+function mbdMarkAddedGroups() {
+    const list = document.getElementById('mbdList');
+    if (!list || !mbdMatches || !mbdMatches.length) return;
+    const idx = mbdAddedIndex();
+    const items = {};
+    mbdMatches.forEach(m => { const k = m.tournament.tournament_url || m.tournament.full_name; (items[k] = items[k] || []).push(m); });
+    list.querySelectorAll('.mbd-group-head').forEach(h => {
+        const span = h.querySelector('.mbd-head-label'); if (!span) return;
+        const arr = items[h.dataset.g] || [];
+        const n = mbdGroupAddedCount(arr, idx);
+        span.classList.toggle('mbd-added', n > 0);
+        span.title = mbdAddedTitle(n, arr.length);
+    });
 }
 // ---- per-competition standings (fetch, preview, save to Saved Tables) ------------------------------------
 const mbdNoTable = new Set();   // competitions the API has no standings for (so they never block adding)
