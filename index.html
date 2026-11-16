@@ -3152,8 +3152,6 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                         <div class="mbd-help">Fetches <b>all</b> football matches of a day (1 API request), grouped by competition. Tick matches and add them as team cards - each card keeps that exact match, so a cup match isn't swapped for the team's league fixture.</div>
                         <div class="mbd-row">
                             <input type="date" id="mbdDate" style="padding: 8px;">
-                            <button type="button" class="btn btn-primary btn-small" onclick="mbdFetch(false)">Fetch matches</button>
-                            <button type="button" class="btn btn-secondary btn-small" onclick="mbdFetch(true)" title="Fetch this date again from the API">🔄</button>
                         </div>
                         <div class="mbd-row">
                             <input type="text" id="mbdSearch" placeholder="🔍 Competition or team (e.g. FA Cup)" oninput="mbdRender()" style="flex: 1 1 200px; padding: 8px;">
@@ -3170,6 +3168,10 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
                             <label class="mbd-check"><input type="checkbox" id="mbdIncNotStarted" checked onchange="mbdRender()"> ⏳ Not started</label>
                             <label class="mbd-check" title="Matches being played right now (in play / half-time)"><input type="checkbox" id="mbdIncLive" checked onchange="mbdRender()"> 🔴 Live (in play)</label>
                             <label class="mbd-check"><input type="checkbox" id="mbdIncFinished" onchange="mbdRender()"> ✅ Finished</label>
+                        </div>
+                        <div class="mbd-row">
+                            <button type="button" class="btn btn-primary btn-small" onclick="mbdFetch(false)">Fetch matches</button>
+                            <button type="button" class="btn btn-secondary btn-small" onclick="mbdFetch(true)" title="Fetch this date again from the API">🔄</button>
                         </div>
                         <div id="mbdStatus" class="mbd-status"></div>
                         <div id="mbdList" class="mbd-list"></div>
