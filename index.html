@@ -3590,8 +3590,9 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 <div style="display: flex; align-items: center; gap: 12px; padding: 4px 0; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 6px; margin: 0;">Min confidence % <input id="engineSlipMinConf" type="number" min="0" max="100" step="1" placeholder="any" style="width: 70px; padding: 4px;" /></label></div>
 <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap;"><span>🎯 Total odds</span><input id="engineSlipMinTotal" type="number" min="1" step="0.01" placeholder="from" style="width: 80px; padding: 4px;" /><span>to</span><input id="engineSlipMaxTotal" type="number" min="1" step="0.01" placeholder="up to" style="width: 80px; padding: 4px;" /></div>
 <div style="display: flex; align-items: center; gap: 12px; padding: 4px 0; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;"><input id="engineSlipReplace" type="checkbox" style="width: 18px; height: 18px;" /> Replace my own picks too</label></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 4px 0; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;"><input id="engineSlipOnlyCols" type="checkbox" checked style="width: 18px; height: 18px;" /> Only pick from the markets shown in the Team / Opp market columns</label></div>
 <small id="engineSlipStatus" style="opacity:.85;"></small>
-<small style="opacity:.75; display:block;">Adds the Market Engine's top prediction for every shown row whose match hasn't started, next to your own picks. Your picks are kept unless you tick the box. With a <b>Total odds</b> range filled in, the engine instead picks the combination of matches with the best combined confidence whose odds multiply into that range (picks already in the slip count towards the total and stay). Works from the data already loaded; rows without a prediction can be run through the engine (asks first, uses API calls).</small>
+<small style="opacity:.75; display:block;">Adds the Market Engine's top prediction for every shown row whose match hasn't started, next to your own picks. Your picks are kept unless you tick the box. With a <b>Total odds</b> range filled in, the engine instead picks the combination of matches with the best combined confidence whose odds multiply into that range (picks already in the slip count towards the total and stay). When a Team / Opp market filter is set, the engine only chooses among the markets that column currently shows (selected markets inside your min/max odds and scores); untick the box to let it use all its markets. Works from the data already loaded; rows without a prediction can be run through the engine (asks first, uses API calls).</small>
 </div>
 <div class="filter-group"><label class="filter-label" for="showPercentagesToggle">🔢 W/D/L &amp; O/U 2.5:</label>
 
@@ -20994,6 +20995,32 @@ function enginePickForRow(team) {
     if (pr && !pr.abstain && pr.key && pr.odds > 0) return { key: pr.key, label: pr.label, odds: pr.odds, p: pr.p, confidence: pr.confidence || 'Engine' };
     return null;
 }
+// markets (absolute keys) the Team / Opp market columns show for this row right now: selected markets inside the limits.
+// null = no market filter is set, so there is nothing to restrict to.
+function tableAllowedKeysForTeam(team) {
+    const cfgs = getOddsMarketFilterConfigs().filter(c => c.keys && c.keys.length);
+    if (!cfgs.length) return null;
+    const allowed = new Set();
+    for (const cfg of cfgs) {
+        for (const k of cfg.keys) {
+            const r = oddsMarketPriceForTeam(team, k, cfg.relative, cfg.who);
+            if (r.state === 'ok' && oddsMarketPassOne(team, cfg, k)) allowed.add(r.key);
+        }
+    }
+    return allowed;
+}
+// the engine's candidate picks for a row, best first. With the columns restriction: its ranked options that the columns show.
+function engineCandidatesForRow(team, onlyCols) {
+    const allowed = onlyCols ? tableAllowedKeysForTeam(team) : null;
+    if (!allowed) { const p = enginePickForRow(team); return p ? [p] : []; }
+    let options = null;
+    const st = getEngineState(team);
+    if (st && st.result && Array.isArray(st.result.options) && !isEnginePickStale(team)) options = st.result.options;
+    if (!options) { try { options = syncEngineOptionsForTeam(team); } catch (e) { options = null; } }
+    return (options || []).filter(o => o.key && o.odds > 1.01 && allowed.has(o.key))
+        .sort((a, b) => (a.rank || 99) - (b.rank || 99))
+        .map(o => ({ key: o.key, label: o.label, odds: o.odds, p: o.p, confidence: `Rank ${o.rank || '-'}` }));
+}
 async function addEnginePicksToSlip() {
     if (engineSlipRunning || engineBulkRunning) { showAlert('The engine is already running.', 'info'); return; }
     const rows = (filteredTeamsData || []).filter(t => t.opponent && getTeamCurrentMatchStatus(t) === 'upcoming');
@@ -21001,7 +21028,10 @@ async function addEnginePicksToSlip() {
     const statusEl = document.getElementById('engineSlipStatus');
     const minConf = parseFloat((document.getElementById('engineSlipMinConf') || {}).value);
     const replaceOwn = !!(document.getElementById('engineSlipReplace') || {}).checked;
-    let items = rows.map(t => ({ t, pick: enginePickForRow(t) }));
+    const onlyCols = !!(document.getElementById('engineSlipOnlyCols') || {}).checked;
+    const colsActive = onlyCols && getOddsMarketFilterConfigs().some(c => c.keys && c.keys.length);
+    const candsOf = t => { const picks = engineCandidatesForRow(t, onlyCols); return { t, picks, pick: picks[0] || null }; };
+    let items = rows.map(t => candsOf(t));
     // rows the engine can still analyse but has nothing cached for: offer to run it (API calls)
     const missing = items.filter(x => !x.pick && x.t.apiEnabled && (x.t.venue === 'Home' || x.t.venue === 'Away'));
     if (missing.length && confirm(`${missing.length} shown row${missing.length === 1 ? ' has' : 's have'} no engine prediction yet.\n\nRun the Market Engine for ${missing.length === 1 ? 'it' : 'them'} first? This fetches live odds and form (uses API calls).\n\nOK = run it, Cancel = only use predictions that are already available.`)) {
@@ -21017,7 +21047,7 @@ async function addEnginePicksToSlip() {
             done++;
         }
         engineSlipRunning = false;
-        items = items.map(x => x.pick ? x : { t: x.t, pick: enginePickForRow(x.t) });
+        items = items.map(x => x.pick ? x : candsOf(x.t));
         displaySelectedTeams();
         updateEnginePickStatus();
     }
@@ -21032,7 +21062,7 @@ async function addEnginePicksToSlip() {
     const maxTotal = parseFloat((document.getElementById('engineSlipMaxTotal') || {}).value);
     if (!isNaN(minTotal) || !isNaN(maxTotal)) {
         // only a maximum given: aim for 85-100% of it (otherwise 'up to 5' would be satisfied by an empty slip)
-        const msg = buildSlipToTotalRange(slip, byMatch, minConf, isNaN(minTotal) ? maxTotal * 0.85 : minTotal, isNaN(maxTotal) ? Infinity : maxTotal);
+        const msg = buildSlipToTotalRange(slip, byMatch, minConf, isNaN(minTotal) ? maxTotal * 0.85 : minTotal, isNaN(maxTotal) ? Infinity : maxTotal, colsActive);
         if (statusEl) statusEl.textContent = msg.text;
         showAlert(msg.text, msg.ok ? 'success' : 'warning');
         return;
@@ -21055,46 +21085,46 @@ async function addEnginePicksToSlip() {
     if (same) parts.push(`${same} already in the slip`);
     if (low) parts.push(`${low} below ${minConf}% confidence`);
     if (none) parts.push(`${none} match${none === 1 ? '' : 'es'} without a prediction`);
-    const msg = `🧠 Engine picks for ${slip.name}: ${parts.join(', ')}. Slip now has ${slip.legs.length} pick${slip.legs.length === 1 ? '' : 's'}.`;
+    const msg = `🧠 Engine picks for ${slip.name}${colsActive ? ' (from the markets in the columns)' : ''}: ${parts.join(', ')}. Slip now has ${slip.legs.length} pick${slip.legs.length === 1 ? '' : 's'}.`;
     if (statusEl) statusEl.textContent = msg;
     showAlert(msg, added || replaced ? 'success' : 'info');
 }
 // Engine picks that make the slip's TOTAL odds land in [lo, hi]: of all candidate matches (not yet in the slip) it takes the
 // combination with the highest combined probability whose odds multiply into the range. Picks already in the slip count and stay.
-function buildSlipToTotalRange(slip, byMatch, minConf, lo, hi) {
+function buildSlipToTotalRange(slip, byMatch, minConf, lo, hi, colsActive) {
     const fmt = n => Number(n).toFixed(2);
     if (lo > hi) { const x = lo; lo = hi; hi = x; }
     const range = `${fmt(lo)}${isFinite(hi) ? '–' + fmt(hi) : '+'}`;
     let base = 1; slip.legs.forEach(l => { base *= Number(l.odds) > 1 ? Number(l.odds) : 1; });
     if (base > hi) return { ok: false, text: `🎯 ${slip.name} is already at ${fmt(base)}, above your ${range} range - nothing added.` };
     if (base >= lo) return { ok: true, text: `🎯 ${slip.name} is already at ${fmt(base)}, inside your ${range} range - nothing to add.` };
-    const cands = [];
+    // one group per match not yet in the slip; its alternatives are the candidate markets (the engine's pick, or the column-shown options)
+    const groups = [];
     let none = 0, low = 0, have = 0;
-    for (const [mkey, { t, pick }] of byMatch) {
+    for (const [mkey, { t, picks }] of byMatch) {
         if (slip.legs.some(l => l.mkey === mkey)) { have++; continue; }
-        if (!pick) { none++; continue; }
-        if (!isNaN(minConf) && pick.p * 100 < minConf) { low++; continue; }
-        if (!(pick.odds > 1.01)) continue;
-        cands.push({ t, pick });
+        const alts = (picks || []).filter(pk => pk.odds > 1.01 && (isNaN(minConf) || pk.p * 100 >= minConf));
+        if (!alts.length) { if ((picks || []).length) low++; else none++; continue; }
+        groups.push({ t, picks: alts });
     }
-    const notes = [none ? `${none} match${none === 1 ? '' : 'es'} without a prediction` : '', low ? `${low} below ${minConf}% confidence` : '', have ? `${have} already in the slip` : ''].filter(Boolean).join(', ');
-    const reach = cands.reduce((m, c) => m * c.pick.odds, base);
-    if (!cands.length || reach < lo * 0.995) {
-        return { ok: false, text: `🎯 Can't reach ${range}: with ${cands.length} candidate pick${cands.length === 1 ? '' : 's'} the slip would top out at ${fmt(reach)} (now ${fmt(base)}).${notes ? ' Left out: ' + notes + '.' : ''} Lower the minimum, show more rows or run the engine for more matches.` };
+    const notes = [none ? `${none} match${none === 1 ? '' : 'es'} without ${colsActive ? 'a market from the columns' : 'a prediction'}` : '', low ? `${low} below ${minConf}% confidence` : '', have ? `${have} already in the slip` : ''].filter(Boolean).join(', ');
+    const reach = groups.reduce((m, g) => m * Math.max(...g.picks.map(pk => pk.odds)), base);
+    if (!groups.length || reach < lo * 0.995) {
+        return { ok: false, text: `🎯 Can't reach ${range}: with ${groups.length} candidate match${groups.length === 1 ? '' : 'es'} the slip would top out at ${fmt(reach)} (now ${fmt(base)}).${notes ? ' Left out: ' + notes + '.' : ''} Lower the minimum, show more rows or run the engine for more matches.` };
     }
-    // 0/1 knapsack on log-odds (steps of 1%): maximise the sum of ln(probability) with the product of odds in range
+    // grouped 0/1 knapsack on log-odds (1% steps): at most ONE market per match; maximise the sum of ln(probability)
     const STEP = 0.01, wOf = o => Math.max(1, Math.round(Math.log(o) / STEP));
     const lnLo = Math.log(lo / base), lnHi = isFinite(hi) ? Math.log(hi / base) : Math.log(Math.max(lo / base, 1) * 3);
     const W = Math.ceil(lnHi / STEP) + 3;
-    const dp = new Float64Array(W + 1).fill(-Infinity); dp[0] = 0;
-    const takeFlags = [];
-    cands.forEach(c => {
-        const w = wOf(c.pick.odds), v = Math.log(Math.min(0.99, Math.max(0.01, c.pick.p)));
-        const tk = new Uint8Array(W + 1);
-        for (let x = W; x >= w; x--) {
-            if (dp[x - w] > -Infinity && dp[x - w] + v > dp[x]) { dp[x] = dp[x - w] + v; tk[x] = 1; }
-        }
-        takeFlags.push(tk);
+    let dp = new Float64Array(W + 1).fill(-Infinity); dp[0] = 0;
+    const choice = [];
+    groups.forEach(g => {
+        const nd = Float64Array.from(dp), ch = new Int16Array(W + 1).fill(-1);
+        g.picks.forEach((pk, j) => {
+            const w = wOf(pk.odds), v = Math.log(Math.min(0.99, Math.max(0.01, pk.p)));
+            for (let x = W; x >= w; x--) if (dp[x - w] > -Infinity && dp[x - w] + v > nd[x]) { nd[x] = dp[x - w] + v; ch[x] = j; }
+        });
+        dp = nd; choice.push(ch);
     });
     const bins = [];
     for (let x = Math.max(1, Math.floor(lnLo / STEP) - 3); x <= W; x++) if (dp[x] > -Infinity) bins.push(x);
@@ -21102,17 +21132,20 @@ function buildSlipToTotalRange(slip, byMatch, minConf, lo, hi) {
     let chosen = null;
     for (const start of bins) {                          // best combined probability first; the real product must really be in range
         let x = start; const sel = [];
-        for (let i = cands.length - 1; i >= 0; i--) if (takeFlags[i][x]) { sel.push(cands[i]); x -= wOf(cands[i].pick.odds); }
+        for (let i = groups.length - 1; i >= 0; i--) {
+            const j = choice[i][x];
+            if (j >= 0) { sel.push({ t: groups[i].t, pick: groups[i].picks[j] }); x -= wOf(groups[i].picks[j].odds); }
+        }
         const total = sel.reduce((m, c) => m * c.pick.odds, base);
         if (sel.length && total >= lo && total <= hi) { chosen = { sel, total }; break; }
     }
-    if (!chosen) return { ok: false, text: `🎯 No combination of the ${cands.length} candidate picks lands inside ${range} (now ${fmt(base)}, max ${fmt(reach)}). Try a wider range.${notes ? ' Left out: ' + notes + '.' : ''}` };
+    if (!chosen) return { ok: false, text: `🎯 No combination of the ${groups.length} candidate match${groups.length === 1 ? '' : 'es'} lands inside ${range} (now ${fmt(base)}, max ${fmt(reach)}). Try a wider range.${notes ? ' Left out: ' + notes + '.' : ''}` };
     chosen.sel.sort((a, b) => b.pick.p - a.pick.p).forEach(c => {
         const leg = makeManualLeg(c.t, c.pick); leg.auto = true; slip.legs.push(leg);
     });
     afterManualSlipChange();
     const chance = Math.round(100 * chosen.sel.reduce((m, c) => m * Math.min(0.99, c.pick.p), slip.legs.filter(l => !l.auto && l.p > 0).reduce((m, l) => m * Math.min(0.99, l.p), 1)));
-    return { ok: true, text: `🎯 ${slip.name}: added ${chosen.sel.length} engine pick${chosen.sel.length === 1 ? '' : 's'} → total odds ${fmt(chosen.total)} (range ${range}), ${slip.legs.length} pick${slip.legs.length === 1 ? '' : 's'} in all. Rough combined chance ~${chance}% (assumes the matches are independent).${notes ? ' Left out: ' + notes + '.' : ''}` };
+    return { ok: true, text: `🎯 ${slip.name}${colsActive ? ' (markets from the columns)' : ''}: added ${chosen.sel.length} engine pick${chosen.sel.length === 1 ? '' : 's'} → total odds ${fmt(chosen.total)} (range ${range}), ${slip.legs.length} pick${slip.legs.length === 1 ? '' : 's'} in all. Rough combined chance ~${chance}% (assumes the matches are independent).${notes ? ' Left out: ' + notes + '.' : ''}` };
 }
 function removeAutoPicksFromSlip() {
     const slip = getActiveManualSlip();
