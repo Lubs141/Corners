@@ -1630,6 +1630,12 @@
         .mbd-check { display: flex; align-items: center; gap: 4px; font-size: 13px; }
         .mbd-list { max-height: 420px; overflow-y: auto; margin: 6px 0; }
         .mbd-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 4px; font-weight: 600; font-size: 13px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,.3); position: sticky; top: 0; background: inherit; }
+        /* rows whose match already has a pick in the active slip */
+        #teamsDataTableContainer tr[data-inslip="1"] > td { background-image: linear-gradient(rgba(25,135,84,.16), rgba(25,135,84,.16)); }
+        #teamsDataTableContainer tr[data-inslip="1"] > td:first-child { box-shadow: inset 4px 0 0 #198754; }
+        .mkt-chip { cursor: pointer; font: inherit; font-weight: 700; color: inherit; background: rgba(25,135,84,.14); border: 1px solid rgba(25,135,84,.75); border-radius: 6px; padding: 1px 7px; margin: 1px 0; touch-action: manipulation; }
+        .mkt-chip.on { background: #198754; color: #fff; }
+        .mkt-chip.swap { border-style: dashed; }
         .mkt-scroll { max-height: 6.4em; min-width: 150px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 4px; text-align: left; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; padding: 2px 4px; }
         .mkt-scroll > div { padding: 1px 0; }
         .mkt-count { display: block; opacity: .65; position: sticky; bottom: 0; }
@@ -3575,6 +3581,16 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 <div class="filter-group" id="tableMarketScopeFilterGroup" style="display: none;"><label class="filter-label" for="tableMarketScopeFilterSelect">Scope:</label> <select id="tableMarketScopeFilterSelect" onchange="renderTeamsTable()" style="padding: 10px;"></select></div>
 <!-- NEW: Percentage Display Toggle -->
 
+<div class="filter-group"><label class="filter-label" for="slipClickToggle">🧾 Tap markets to build a slip:</label>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;"><input id="slipClickToggle" onchange="onSlipClickToggle()" style="width: 18px; height: 18px;" type="checkbox" /> <span id="slipClickToggleLabel">Off</span></label><small id="slipClickActive" style="opacity:.8;"></small></div>
+<small style="opacity:.75;">On: the prices in the Team market / Opp market columns become buttons. Tap one to add it to your slip (tap again to remove; tapping another market of the same match replaces it).</small>
+</div>
+<div class="filter-group"><label class="filter-label">🧠 Let the engine pick for the slip:</label>
+<div style="display: flex; align-items: center; gap: 10px; padding: 8px 0 4px; flex-wrap: wrap;"><button type="button" class="btn btn-primary btn-small" id="engineSlipBtn" onclick="addEnginePicksToSlip()">🧠 Add engine picks (shown rows)</button><button type="button" class="btn btn-secondary btn-small" onclick="removeAutoPicksFromSlip()" title="Takes out only the picks added by the button on the left">🧹 Remove them</button></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 4px 0; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 6px; margin: 0;">Min confidence % <input id="engineSlipMinConf" type="number" min="0" max="100" step="1" placeholder="any" style="width: 70px; padding: 4px;" /></label><label style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;"><input id="engineSlipReplace" type="checkbox" style="width: 18px; height: 18px;" /> Replace my own picks too</label></div>
+<small id="engineSlipStatus" style="opacity:.85;"></small>
+<small style="opacity:.75; display:block;">Adds the Market Engine's top prediction for every shown row whose match hasn't started, next to your own picks. Your picks are kept unless you tick the box. Works from the data already loaded; rows without a prediction can be run through the engine (asks first, uses API calls).</small>
+</div>
 <div class="filter-group"><label class="filter-label" for="showPercentagesToggle">🔢 W/D/L &amp; O/U 2.5:</label>
 
 <div style="display: flex; align-items: center; gap: 10px; padding: 10px 0;"><label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;"><input id="showPercentagesToggle" onchange="renderTeamsTable()" style="width: 18px; height: 18px;" type="checkbox" /> <span id="showPercentagesToggleLabel">Show as counts</span></label></div>
@@ -9832,6 +9848,22 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         const confidence = (pr && !pr.abstain && pr.key === o.key && pr.confidence) ? pr.confidence : `Rank ${o.rank}`;
         toggleEngineLegInSlip(team, { key: o.key, label: o.label, odds: o.odds, p: o.p, confidence: confidence });
     }
+    // the slip leg for a pick (shared by every way of adding a pick to a slip)
+    function makeManualLeg(team, pick) {
+        let acCtx = null;
+        try { acCtx = acMakeCtx(); } catch (e) { acCtx = null; }
+        const asLeg = Object.assign({}, team, { odds: pick.odds, betMarket: pick.label, prediction: pick.key, _fromSuggestion: true, _fromEngine: true, _suggestionScore: Math.round(pick.p * 100), _suggestionConfidence: pick.confidence });
+        return {
+            mkey: manualMatchKey(team.team, team.opponent, team.matchDate),
+            team: team.team, country: team.country, opponent: team.opponent || '',
+            odds: pick.odds, betMarket: pick.label, prediction: pick.key,
+            matchDate: team.matchDate || '', matchTime: team.matchTime || '', venue: team.venue || '',
+            fixtureDetails: team.fixtureDetails || null,
+            fromSuggestion: true, fromEngine: true,
+            p: pick.p, confidence: pick.confidence,
+            features: acCtx ? acBuildFeatures(asLeg, acCtx) : null
+        };
+    }
     // Shared by the prediction button and the ranked-option buttons: add the pick to the active slip, replace this match's pick, or remove it
     function toggleEngineLegInSlip(team, pick) {
         const slip = getActiveManualSlip() || createManualSlip();
@@ -9842,19 +9874,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
             showAlert(`Removed ${team.team} - ${pick.label} from ${slip.name}.`, 'info');
             return;
         }
-        let acCtx = null;
-        try { acCtx = acMakeCtx(); } catch (e) { acCtx = null; }
-        const asLeg = Object.assign({}, team, { odds: pick.odds, betMarket: pick.label, prediction: pick.key, _fromSuggestion: true, _fromEngine: true, _suggestionScore: Math.round(pick.p * 100), _suggestionConfidence: pick.confidence });
-        const leg = {
-            mkey: manualMatchKey(team.team, team.opponent, team.matchDate),
-            team: team.team, country: team.country, opponent: team.opponent || '',
-            odds: pick.odds, betMarket: pick.label, prediction: pick.key,
-            matchDate: team.matchDate || '', matchTime: team.matchTime || '', venue: team.venue || '',
-            fixtureDetails: team.fixtureDetails || null,
-            fromSuggestion: true, fromEngine: true,
-            p: pick.p, confidence: pick.confidence,
-            features: acCtx ? acBuildFeatures(asLeg, acCtx) : null
-        };
+        const leg = makeManualLeg(team, pick);
         if (existing) slip.legs[slip.legs.indexOf(existing)] = leg; else slip.legs.push(leg);
         afterManualSlipChange();
         showAlert(`${existing ? 'Replaced' : 'Added'} ${team.team} - ${pick.label} @ ${pick.odds.toFixed(2)} ${existing ? 'in' : 'to'} ${slip.name}.`, 'success');
@@ -9976,6 +9996,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         saveManualSlips();
     }
     function renderManualSlipBuilder() {
+        try { refreshTableSlipChips(); } catch (e) { /* table not drawn yet */ }
         const box = document.getElementById('manualSlipContent');
         if (!box) return;
         setManualSlipSectionHidden(manualSlipsHidden);
@@ -19005,7 +19026,7 @@ function displayOpponentPopup(opponentName, opponentData) {
             const lDisplay = showPercentages ? (team.p > 0 ? Math.round((team.l / team.p) * 100) + '%' : '-') : team.l;
             
             html += `
-                <tr ${rowClass} data-status="${statusValue}">
+                <tr ${rowClass} data-status="${statusValue}" ${slipRowAttrs(team)}>
                     <td>${team.pos}</td>
                     <td>${teamLogoHtml(team.team, 20)}<strong>${team.team}</strong>${teamFormDots}</td>
                     <td>${flagImgHtml(team.country)}${countryLeagueDisplay}</td>
@@ -20805,7 +20826,10 @@ function syncHalfTimeRates(homeName, awayName) {
     } catch (e) { return null; }
 }
 const syncEngineMemo = {};
-function syncEngineOptionsForTeam(team) {
+function syncEngineOptionsForTeam(team) { const c = syncEngineCompute(team); return c ? c.options : null; }
+// the engine's full result (prediction + ranked options) from cached data only - no API calls
+function syncEngineResultForTeam(team) { const c = syncEngineCompute(team); return c ? c.res : null; }
+function syncEngineCompute(team) {
     if (!team || !team.opponent || (team.venue !== 'Home' && team.venue !== 'Away')) return null;
     const match = getTeamStoredMatch(team);
     const mid = match && match.match_id;
@@ -20822,14 +20846,14 @@ function syncEngineOptionsForTeam(team) {
     const sig = [mid, currentMatchOdds[mid] ? 'L' + ((getMarketCatalog(currentMatchOdds[mid]) || {}).markets || []).length : (snap ? snap.at : '-'),
         hasStats ? (homeForm && !homeForm.error ? 1 : 0) + '' + (awayForm && !awayForm.error ? 1 : 0) : 'x', htftRates ? 'h' : '-', homeRow ? homeRow.pos : '', awayRow ? awayRow.pos : ''].join('|');
     const mk = `${team.team}|${team.country}|${team.venue}|${team.opponent}`;
-    if (syncEngineMemo[mk] && syncEngineMemo[mk].sig === sig) return syncEngineMemo[mk].options;
-    let options = null;
+    if (syncEngineMemo[mk] && syncEngineMemo[mk].sig === sig) return syncEngineMemo[mk];
+    let options = null, res = null;
     try {
-        const res = computeMarketEngineResult({ homeName, awayName, isTeamHome, matchOdds, homeForm, awayForm, homeRow, awayRow, htftRates, leaders: buildLeaderPointsMap(), teamCountry: team.country });
+        res = computeMarketEngineResult({ homeName, awayName, isTeamHome, matchOdds, homeForm, awayForm, homeRow, awayRow, htftRates, leaders: buildLeaderPointsMap(), teamCountry: team.country });
         options = res && Array.isArray(res.options) ? res.options : null;
-    } catch (e) { options = null; }
-    syncEngineMemo[mk] = { sig, options };
-    return options;
+    } catch (e) { options = null; res = null; }
+    syncEngineMemo[mk] = { sig, options, res };
+    return syncEngineMemo[mk];
 }
 // the engine's confidence (5-95) in one market for this team's fixture, or null
 function engineScoreForKey(team, key) {
@@ -20922,6 +20946,154 @@ function oddsMarketHeaderTitle(cfg) {
     if (cfg.isAll) return `All ${cfg.keys.length} markets of the list${cfg.relative ? '' : ' (literal match sides)'} - shows the ones inside your limits, click to sort by price`;
     return `${cfg.keys.map(marketLabelForKey).join(' | ')}${cfg.relative ? '' : ' (literal match sides)'} - price and score, click to sort by price`;
 }
+// ---- tap a price in the Team / Opp market columns to put it on the "Build your own slip" slip ----
+const SLIP_CLICK_KEY = 'soccer_betting_table_slip_click';
+function slipClickOn() { const el = document.getElementById('slipClickToggle'); return !!(el && el.checked); }
+function slipChipState(mk, key) {
+    const slip = getActiveManualSlip();
+    const leg = slip ? slip.legs.find(l => l.mkey === mk) : null;
+    return !leg ? '' : (leg.prediction === key ? 'on' : 'swap');
+}
+// attributes for a table row: its match key, and whether that match has a pick in the active slip
+function slipRowAttrs(team) {
+    const mk = manualMatchKey(team.team, team.opponent, team.matchDate);
+    const slip = getActiveManualSlip();
+    const leg = slip ? slip.legs.find(l => l.mkey === mk) : null;
+    return `data-mk="${escapeAttr(mk)}"${leg ? ` data-inslip="1" title="In ${escapeAttr(slip.name)}: ${escapeAttr(leg.betMarket)} @ ${Number(leg.odds).toFixed(2)}"` : ''}`;
+}
+function slipChipHtml(team, r) {
+    const mk = manualMatchKey(team.team, team.opponent, team.matchDate);
+    const st = slipChipState(mk, r.key);
+    const slip = getActiveManualSlip();
+    const title = st === 'on' ? 'In your slip - tap to remove' : st === 'swap' ? 'Tap to replace this match\'s pick in your slip' : `Tap to add to ${slip ? slip.name : 'a new slip'}`;
+    return `<button type="button" class="mkt-chip ${st}" data-mk="${escapeAttr(mk)}" data-k="${escapeAttr(r.key)}" data-p="${r.price}" title="${escapeAttr(title)}" onclick="event.stopPropagation(); onTableChipClick(this)">${st === 'on' ? '✓ ' : ''}${r.price.toFixed(2)}</button>`;
+}
+function escapeAttr(x) { return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+let lastChipTap = { mk: '', key: '', t: 0 };
+function onTableChipClick(el) {
+    const mk = el.dataset.mk, key = el.dataset.k, price = Number(el.dataset.p);
+    // a fast double tap (or a bounce) on the SAME price counts once - otherwise it would add and instantly remove the pick
+    const now = Date.now();
+    if (lastChipTap.mk === mk && lastChipTap.key === key && now - lastChipTap.t < 450) return;
+    lastChipTap = { mk, key, t: now };
+    const team = extractedTeams.find(t => manualMatchKey(t.team, t.opponent, t.matchDate) === mk);
+    if (!team || !(price > 0)) { showAlert('This match is no longer in the team cards.', 'warning'); return; }
+    const sc = engineScoreForKey(team, key);
+    toggleEngineLegInSlip(team, { key, label: marketLabelForKey(key), odds: price, p: sc !== null ? sc / 100 : 1 / price, confidence: 'Table pick' });
+}
+// ---- the engine makes the picks (next to your own taps) ----
+let engineSlipRunning = false;
+// the engine's pick for a row: its stored pick if still valid, else a fresh one from the data already loaded (no API calls)
+function enginePickForRow(team) {
+    const sp = team.enginePick;
+    if (sp && !sp.abstain && sp.key && sp.odds > 0 && !isEnginePickStale(team)) return { key: sp.key, label: sp.label, odds: sp.odds, p: sp.p, confidence: sp.confidence || 'Engine' };
+    let pr = null;
+    try { const res = syncEngineResultForTeam(team); pr = res && res.prediction; } catch (e) { pr = null; }
+    if (pr && !pr.abstain && pr.key && pr.odds > 0) return { key: pr.key, label: pr.label, odds: pr.odds, p: pr.p, confidence: pr.confidence || 'Engine' };
+    return null;
+}
+async function addEnginePicksToSlip() {
+    if (engineSlipRunning || engineBulkRunning) { showAlert('The engine is already running.', 'info'); return; }
+    const rows = (filteredTeamsData || []).filter(t => t.opponent && getTeamCurrentMatchStatus(t) === 'upcoming');
+    if (!rows.length) { showAlert('No upcoming match among the rows shown - nothing for the engine to pick.', 'warning'); return; }
+    const statusEl = document.getElementById('engineSlipStatus');
+    const minConf = parseFloat((document.getElementById('engineSlipMinConf') || {}).value);
+    const replaceOwn = !!(document.getElementById('engineSlipReplace') || {}).checked;
+    let items = rows.map(t => ({ t, pick: enginePickForRow(t) }));
+    // rows the engine can still analyse but has nothing cached for: offer to run it (API calls)
+    const missing = items.filter(x => !x.pick && x.t.apiEnabled && (x.t.venue === 'Home' || x.t.venue === 'Away'));
+    if (missing.length && confirm(`${missing.length} shown row${missing.length === 1 ? ' has' : 's have'} no engine prediction yet.\n\nRun the Market Engine for ${missing.length === 1 ? 'it' : 'them'} first? This fetches live odds and form (uses API calls).\n\nOK = run it, Cancel = only use predictions that are already available.`)) {
+        engineSlipRunning = true;
+        let done = 0;
+        for (const x of missing) {
+            if (statusEl) statusEl.textContent = `Running the engine… ${done}/${missing.length} (${x.t.team})`;
+            try {
+                const result = await runMarketEngine(x.t);
+                const st = getEngineState(x.t); st.result = result; st.error = '';
+                storeEnginePick(x.t, result);
+            } catch (e) { console.warn('Engine run failed for', x.t.team, e); }
+            done++;
+        }
+        engineSlipRunning = false;
+        items = items.map(x => x.pick ? x : { t: x.t, pick: enginePickForRow(x.t) });
+        displaySelectedTeams();
+        updateEnginePickStatus();
+    }
+    const slip = getActiveManualSlip() || createManualSlip();
+    // one entry per match (both teams of a match can be in the table): prefer the row that has a prediction
+    const byMatch = new Map();
+    for (const x of items) {
+        const k = manualMatchKey(x.t.team, x.t.opponent, x.t.matchDate);
+        if (!byMatch.has(k) || (!byMatch.get(k).pick && x.pick)) byMatch.set(k, x);
+    }
+    let added = 0, replaced = 0, kept = 0, same = 0, none = 0, low = 0;
+    for (const [mkey, { t, pick }] of byMatch) {
+        if (!pick) { none++; continue; }
+        if (!isNaN(minConf) && pick.p * 100 < minConf) { low++; continue; }
+        const existing = slip.legs.find(l => l.mkey === mkey);
+        if (existing && existing.prediction === pick.key) { same++; continue; }
+        if (existing && !replaceOwn) { kept++; continue; }
+        const leg = makeManualLeg(t, pick);
+        leg.auto = true;                                             // so "Remove them" can find exactly these
+        if (existing) { slip.legs[slip.legs.indexOf(existing)] = leg; replaced++; } else { slip.legs.push(leg); added++; }
+    }
+    afterManualSlipChange();
+    const parts = [`${added} added`];
+    if (replaced) parts.push(`${replaced} replaced`);
+    if (kept) parts.push(`${kept} kept (you already picked)`);
+    if (same) parts.push(`${same} already in the slip`);
+    if (low) parts.push(`${low} below ${minConf}% confidence`);
+    if (none) parts.push(`${none} match${none === 1 ? '' : 'es'} without a prediction`);
+    const msg = `🧠 Engine picks for ${slip.name}: ${parts.join(', ')}. Slip now has ${slip.legs.length} pick${slip.legs.length === 1 ? '' : 's'}.`;
+    if (statusEl) statusEl.textContent = msg;
+    showAlert(msg, added || replaced ? 'success' : 'info');
+}
+function removeAutoPicksFromSlip() {
+    const slip = getActiveManualSlip();
+    const n = slip ? slip.legs.filter(l => l.auto).length : 0;
+    if (!n) { showAlert('There are no engine-added picks in the active slip.', 'info'); return; }
+    slip.legs = slip.legs.filter(l => !l.auto);
+    afterManualSlipChange();
+    const statusEl = document.getElementById('engineSlipStatus');
+    if (statusEl) statusEl.textContent = `Removed ${n} engine-added pick${n === 1 ? '' : 's'} from ${slip.name}; your own picks stay.`;
+    showAlert(`Removed ${n} engine-added pick${n === 1 ? '' : 's'} from ${slip.name}.`, 'success');
+}
+// recolour the chips in place (no table re-render, so a scrolled cell keeps its position)
+function refreshTableSlipChips() {
+    const slip = getActiveManualSlip();
+    const act = document.getElementById('slipClickActive');
+    if (act) act.textContent = slipClickOn() ? `Adding to: ${slip ? slip.name : 'a new slip (created on first tap)'}${slip ? ` (${slip.legs.length} pick${slip.legs.length === 1 ? '' : 's'})` : ''}` : '';
+    document.querySelectorAll('#teamsDataTableContainer tr[data-mk]').forEach(tr => {       // tint the rows that have a pick
+        const leg = slip ? slip.legs.find(l => l.mkey === tr.dataset.mk) : null;
+        if (leg) { tr.setAttribute('data-inslip', '1'); tr.title = `In ${slip.name}: ${leg.betMarket} @ ${Number(leg.odds).toFixed(2)}`; }
+        else { tr.removeAttribute('data-inslip'); tr.removeAttribute('title'); }
+    });
+    document.querySelectorAll('.mkt-chip').forEach(c => {
+        const st = slipChipState(c.dataset.mk, c.dataset.k);
+        c.classList.toggle('on', st === 'on'); c.classList.toggle('swap', st === 'swap');
+        const price = Number(c.dataset.p).toFixed(2);
+        c.textContent = (st === 'on' ? '✓ ' : '') + price;
+        c.title = st === 'on' ? 'In your slip - tap to remove' : st === 'swap' ? 'Tap to replace this match\'s pick in your slip' : `Tap to add to ${slip ? slip.name : 'a new slip'}`;
+    });
+}
+function onSlipClickToggle() {
+    const el = document.getElementById('slipClickToggle'), lab = document.getElementById('slipClickToggleLabel');
+    if (lab) lab.textContent = el.checked ? 'On - tap a price to add it' : 'Off';
+    try { localStorage.setItem(SLIP_CLICK_KEY, el.checked ? '1' : '0'); } catch (e) { /* not remembered */ }
+    renderTeamsTable();
+    refreshTableSlipChips();
+}
+(function restoreSlipClickToggle() {
+    const run = () => {
+        try {
+            if (localStorage.getItem(SLIP_CLICK_KEY) === '1') {
+                const el = document.getElementById('slipClickToggle');
+                if (el) { el.checked = true; const lab = document.getElementById('slipClickToggleLabel'); if (lab) lab.textContent = 'On - tap a price to add it'; }
+            }
+        } catch (e) { /* ignore */ }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+})();
 // table cell for the "Team market" / "Opponent market" columns: price + score of each selected market
 function oddsMarketCell(team, cfg) {
     if (!cfg || !cfg.keys.length) return '<span style="color:#6c757d;">-</span>';
@@ -20933,7 +21105,7 @@ function oddsMarketCell(team, cfg) {
         const lab = multi ? `<small>${marketLabelForKey(k)}:</small> ` : '';
         if (r.state !== 'ok') return `<div style="white-space:nowrap;">${lab}<span style="color:#6c757d;" title="${r.state === 'nomarket' ? 'This market is not offered for this match' : 'No odds loaded for this match yet'}">-</span></div>`;
         const score = engineScoreForKey(team, r.key);
-        return `<div style="white-space:nowrap;">${lab}<strong>${r.price.toFixed(2)}</strong> ${score === null ? '' : renderOddsScoreBadge(score)}</div>`;
+        return `<div style="white-space:nowrap;">${lab}${slipClickOn() ? slipChipHtml(team, r) : `<strong>${r.price.toFixed(2)}</strong>`} ${score === null ? '' : renderOddsScoreBadge(score)}</div>`;
     });
     // every market is reachable: from 5 markets on the cell scrolls (about 4 rows visible) instead of cutting the list off
     if (shownKeys.length > 4) return `<div class="mkt-scroll" tabindex="0" title="${shownKeys.length} markets - scroll inside this box">${parts.join('')}<small class="mkt-count">${shownKeys.length} markets</small></div>`;
