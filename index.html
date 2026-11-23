@@ -3585,6 +3585,11 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
 <div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;"><input id="slipClickToggle" onchange="onSlipClickToggle()" style="width: 18px; height: 18px;" type="checkbox" /> <span id="slipClickToggleLabel">Off</span></label><small id="slipClickActive" style="opacity:.8;"></small></div>
 <small style="opacity:.75;">On: the prices in the Team market / Opp market columns become buttons. Tap one to add it to your slip (tap again to remove; tapping another market of the same match replaces it).</small>
 </div>
+<div class="filter-group"><label class="filter-label" for="smartFilterToggle">🤖 Smart auto-filter:</label>
+<div style="display: flex; align-items: center; gap: 12px; padding: 8px 0 4px; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;"><input id="smartFilterToggle" onchange="onSmartFilterChange()" style="width: 18px; height: 18px;" type="checkbox" /> <span id="smartFilterToggleLabel">Off</span></label><select id="smartFilterLevel" onchange="onSmartFilterChange()" style="padding: 6px;"><option value="light">Light</option><option value="balanced" selected>Balanced</option><option value="strict">Strict</option></select></div>
+<div id="smartFilterStatus" style="font-size: 13px; padding: 4px 0;"></div>
+<small style="opacity:.75; display:block;">On top of your manual filters, hides the rows where the engine has no pick worth making: it checks the engine's own evidence (estimated chance, value against the price, how many signals agree, form sample size, how old the odds are) and, once you have 40+ settled legs, the model learned from your tracked results. <b>Light</b> mirrors the engine's own abstain rules, <b>Balanced</b> (chance ≥50%, not overpriced, form loaded with 4+ matches, odds under 48 h old) is the everyday setting, <b>Strict</b> (chance ≥60%, no negative value, 3+ agreeing signals, 6+ matches, odds under 12 h old) is for few, solid picks. Rows are never deleted - switch it off to see them again.</small>
+</div>
 <div class="filter-group"><label class="filter-label">🧠 Let the engine pick for the slip:</label>
 <div style="display: flex; align-items: center; gap: 12px; padding: 4px 0; flex-wrap: wrap;"><label style="display: flex; align-items: center; gap: 6px; margin: 0;">Min confidence % <input id="engineSlipMinConf" type="number" min="0" max="100" step="1" placeholder="any" style="width: 70px; padding: 4px;" /></label></div>
 <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap;"><span>🎯 Total odds</span><input id="engineSlipMinTotal" type="number" min="1" step="0.01" placeholder="from" style="width: 80px; padding: 4px;" /><span>to</span><input id="engineSlipMaxTotal" type="number" min="1" step="0.01" placeholder="up to" style="width: 80px; padding: 4px;" /></div>
@@ -11639,7 +11644,7 @@ body.dark-mode .ss-item mark { background: #6b5b13; color: #fff; }
         formRefreshTimer = null;
         if (isUserEditingField()) { formRefreshTimer = setTimeout(runFormRefresh, 1000); return; }
         formRefreshFirstAt = 0;
-        try { renderTeamsTable(); displaySelectedTeams(); } catch (e) { console.warn('Refresh failed', e); }
+        try { if (smartFilterOn()) filterTeamsTable(); else renderTeamsTable(); displaySelectedTeams(); } catch (e) { console.warn('Refresh failed', e); }
     }
     async function ensureTeamFormsLoaded(teams) {
         const names = new Set();
@@ -19621,6 +19626,7 @@ function filterTeamsTable() {
     });
     
     debugLog('Filter results:', `${filteredTeamsData.length} teams match all active filters`);
+    smartFilterAfterManual();            // optional engine-evidence filter on top of the manual ones
     
     // Show appropriate filter info boxes
     updateFilterInfo(pointDiffFilter, countryFilter, topTeamPointsByCountry, { leaderRangeOn, fixtureRangeOn, exactLeaderOn, exactFixtureOn, exactFixtureValue, fallbackLeagues: leaderFallbackLeagues, skipped: pointDiffSkipped, exactSkipped: pointDiffExactSkipped, rangeDir: pointDiffRangeDir, exactDir: pointDiffExactDir });
@@ -19724,7 +19730,8 @@ function resetTableFilters() {
     currentSortColumn = null;
     currentSortDirection = 'asc';
     filteredTeamsData = [...extractedTeams];
-    renderTeamsTable();
+    if (smartFilterOn()) filterTeamsTable();       // the smart filter is a mode, not a manual filter: it stays on after "reset"
+    else renderTeamsTable();
 }
 
 function deleteTeam(index) {
@@ -20995,6 +21002,150 @@ function enginePickForRow(team) {
     if (pr && !pr.abstain && pr.key && pr.odds > 0) return { key: pr.key, label: pr.label, odds: pr.odds, p: pr.p, confidence: pr.confidence || 'Engine' };
     return null;
 }
+// ================= Smart auto-filter =================
+const SMART_KEY = 'soccer_betting_smart_filter';
+const SMART_LEVELS = {
+    light:    { label: 'Light',    minP: 0.40, minEv: -0.12, needEv: false, minAgree: 0,    minSignals: 2, needForm: false, minSample: 0, maxOddsAgeH: Infinity, minLearned: 0.35 },
+    balanced: { label: 'Balanced', minP: 0.50, minEv: -0.03, needEv: false, minAgree: 0.35, minSignals: 2, needForm: true,  minSample: 4, maxOddsAgeH: 48,       minLearned: 0.45 },
+    strict:   { label: 'Strict',   minP: 0.60, minEv: 0,     needEv: true,  minAgree: 0.5,  minSignals: 3, needForm: true,  minSample: 6, maxOddsAgeH: 12,       minLearned: 0.55 }
+};
+const SMART_REASONS = { started: 'match started or finished', noopp: 'no opponent known', nodata: 'no engine data yet (load odds & form)', form: 'recent form not loaded',
+    sample: 'too few recent matches', stale: 'odds are old', noprice: 'no priced market', nocols: 'no market from the columns has a price', chance: 'estimated chance too low',
+    value: 'priced below its value', signals: 'signals disagree or too few', learned: 'your learned model doubts it' };
+let smartHidden = [], smartLearnCache = null;
+function smartFilterState() {
+    const on = !!(document.getElementById('smartFilterToggle') || {}).checked;
+    const lv = (document.getElementById('smartFilterLevel') || {}).value || 'balanced';
+    return { on, level: lv, cfg: SMART_LEVELS[lv] || SMART_LEVELS.balanced };
+}
+function smartFilterOn() { return smartFilterState().on; }
+// the model learned from your settled tracked legs (cached until the number of settled legs changes)
+function smartLearn() {
+    let n = 0;
+    (typeof trackedPages !== 'undefined' ? trackedPages : []).forEach(e => (e.slips || []).forEach(sl => (sl.legs || []).forEach(l => { if (l === 'won' || l === 'lost') n++; })));
+    const sig = n + '|' + (typeof trackedPages !== 'undefined' ? trackedPages.length : 0);
+    if (smartLearnCache && smartLearnCache.sig === sig) return smartLearnCache.info;
+    let info;
+    try { info = acLearn(); } catch (e) { info = { trusted: false, n }; }
+    smartLearnCache = { sig, info };
+    return info;
+}
+function smartResultForRow(team) {
+    const st = getEngineState(team);
+    if (st && st.result && Array.isArray(st.result.options) && !isEnginePickStale(team)) return st.result;
+    try { return syncEngineResultForTeam(team); } catch (e) { return null; }
+}
+// -> { ok, cat, detail, passing: [options that pass, best first] }
+function smartEvaluateRow(team, S, learn, ctx, onlyCols) {
+    const cfg = S.cfg;
+    const fail = (cat, detail) => ({ ok: false, cat, detail: detail || '', passing: [] });
+    if (!team.opponent) return fail('noopp');
+    if (getTeamCurrentMatchStatus(team) !== 'upcoming') return fail('started');
+    const res = smartResultForRow(team);
+    if (!res || !Array.isArray(res.options)) return fail('nodata');
+    const snap = res.snapshot || {};
+    const hasForm = !!(snap.homeForm && snap.awayForm);
+    if (cfg.needForm && !hasForm) return fail('form');
+    if (cfg.minSample > 0 && hasForm) {
+        const low = Math.min(snap.sampleHome || 0, snap.sampleAway || 0);
+        if (low < cfg.minSample) return fail('sample', `${low} recent match${low === 1 ? '' : 'es'}, needs ${cfg.minSample}`);
+    }
+    if (cfg.maxOddsAgeH !== Infinity) {
+        const m = getTeamStoredMatch(team), sn = m && oddsSnapshots[m.match_id];
+        if (sn && sn.at && Date.now() - sn.at > cfg.maxOddsAgeH * 3600000) return fail('stale', `saved ${Math.round((Date.now() - sn.at) / 3600000)} h ago`);
+    }
+    const allowed = onlyCols ? tableAllowedKeysForTeam(team) : null;
+    let opts = res.options.filter(o => o.odds !== null && o.odds >= ENGINE_MIN_ODDS);
+    if (allowed) { opts = opts.filter(o => allowed.has(o.key)); if (!opts.length) return fail('nocols'); }
+    else { if (!opts.length) return fail('noprice'); opts = [opts[0]]; }          // no column restriction: the engine's own top priced option
+    const passing = []; let firstFail = null;
+    for (const o of opts) {
+        let f = null;
+        if (o.p < cfg.minP) f = ['chance', `${Math.round(o.p * 100)}% < ${Math.round(cfg.minP * 100)}%`];
+        else if (cfg.needEv && (o.ev === null || o.ev === undefined)) f = ['value', 'no value estimate'];
+        else if (o.ev !== null && o.ev !== undefined && o.ev < cfg.minEv) f = ['value', `${Math.round(o.ev * 100)}% vs price`];
+        else if ((o.agreement || 0) < cfg.minAgree || (o.signalCount || 0) < cfg.minSignals) f = ['signals', `${o.signalCount || 0} signal${o.signalCount === 1 ? '' : 's'}, agreement ${Math.round((o.agreement || 0) * 100)}%`];
+        let blended = o.p;
+        if (!f && learn && learn.trusted) {
+            try {
+                const leg = Object.assign({}, team, { odds: o.odds, betMarket: o.label, prediction: o.key });
+                const lp = acWinProb(acBuildFeatures(leg, ctx), learn);
+                if (lp < cfg.minLearned) f = ['learned', `model says ${Math.round(lp * 100)}%`];
+                else blended = (o.p + lp) / 2;
+            } catch (e) { /* learned check is optional */ }
+        }
+        if (f) { if (!firstFail) firstFail = f; } else passing.push(Object.assign({}, o, { smartScore: blended }));
+    }
+    if (!passing.length) return fail(firstFail ? firstFail[0] : 'chance', firstFail ? firstFail[1] : '');
+    passing.sort((a, b) => b.smartScore - a.smartScore);
+    return { ok: true, cat: '', detail: '', passing };
+}
+// applies the smart filter to the rows that passed the manual filters
+function smartFilterAfterManual() {
+    smartHidden = [];
+    const S = smartFilterState();
+    if (!S.on) { smartRenderStatus(null); return; }
+    const learn = smartLearn();
+    let ctx = null; try { ctx = acMakeCtx(); } catch (e) { ctx = { leaders: {}, sizes: {} }; }
+    const onlyCols = !!(document.getElementById('engineSlipOnlyCols') || {}).checked;
+    const before = filteredTeamsData.length, kept = [];
+    filteredTeamsData.forEach(t => {
+        const r = smartEvaluateRow(t, S, learn, ctx, onlyCols);
+        if (r.ok) kept.push(t); else smartHidden.push({ t, cat: r.cat, detail: r.detail });
+    });
+    filteredTeamsData = kept;
+    smartRenderStatus({ S, learn, before, kept: kept.length });
+}
+function smartRenderStatus(info) {
+    const el = document.getElementById('smartFilterStatus');
+    if (!el) return;
+    if (!info) { el.innerHTML = ''; return; }
+    const esc = x => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const counts = {};
+    smartHidden.forEach(h => { counts[h.cat] = (counts[h.cat] || 0) + 1; });
+    const parts = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).map(c => `${counts[c]} ${SMART_REASONS[c] || c}`);
+    const lrn = info.learn && info.learn.trusted ? `learned model active (${info.learn.n} settled legs)` : `learned model not active yet (${(info.learn && info.learn.n) || 0} of 40 settled legs needed)`;
+    const missing = counts.nodata || 0;
+    const details = smartHidden.length ? `<details style="margin-top:4px;"><summary style="cursor:pointer;">Show the ${smartHidden.length} hidden row${smartHidden.length === 1 ? '' : 's'}</summary><div style="max-height:200px;overflow-y:auto;font-size:12px;padding-top:4px;">${smartHidden.map(h => `<div>${esc(h.t.team)} vs ${esc(h.t.opponent || '?')} - ${esc(SMART_REASONS[h.cat] || h.cat)}${h.detail ? ' (' + esc(h.detail) + ')' : ''}</div>`).join('')}</div></details>` : '';
+    el.innerHTML = `🤖 <b>${info.S.cfg.label}</b>: showing ${info.kept} of ${info.before} rows${smartHidden.length ? `, hid ${smartHidden.length}: ${esc(parts.join(', '))}` : ''}. <span style="opacity:.75;">${esc(lrn)}.</span>`
+        + (missing ? ` <button type="button" class="btn btn-secondary btn-small" onclick="smartRunEngineForMissing()">▶ Run the engine for the ${missing} without data</button>` : '') + details;
+}
+async function smartRunEngineForMissing() {
+    if (engineSlipRunning || engineBulkRunning) { showAlert('The engine is already running.', 'info'); return; }
+    const list = smartHidden.filter(h => h.cat === 'nodata' && h.t.apiEnabled && (h.t.venue === 'Home' || h.t.venue === 'Away')).map(h => h.t);
+    if (!list.length) { showAlert('None of the hidden rows can be analysed (they need API data enabled and a Home/Away venue).', 'info'); return; }
+    if (!confirm(`Run the Market Engine for ${list.length} row${list.length === 1 ? '' : 's'}? It fetches live odds and form (uses API calls).`)) return;
+    engineSlipRunning = true;
+    const el = document.getElementById('smartFilterStatus');
+    let done = 0;
+    for (const t of list) {
+        if (el) el.textContent = `Running the engine… ${done}/${list.length} (${t.team})`;
+        try { const result = await runMarketEngine(t); const st = getEngineState(t); st.result = result; st.error = ''; storeEnginePick(t, result); } catch (e) { console.warn('Engine run failed for', t.team, e); }
+        done++;
+    }
+    engineSlipRunning = false;
+    filterTeamsTable();
+    displaySelectedTeams();
+}
+function onSmartFilterChange() {
+    const S = smartFilterState();
+    const lab = document.getElementById('smartFilterToggleLabel');
+    if (lab) lab.textContent = S.on ? `On - ${S.cfg.label}` : 'Off';
+    try { localStorage.setItem(SMART_KEY, JSON.stringify({ on: S.on, level: S.level })); } catch (e) { /* not remembered */ }
+    filterTeamsTable();
+}
+(function restoreSmartFilter() {
+    const run = () => {
+        try {
+            const saved = JSON.parse(localStorage.getItem(SMART_KEY) || 'null');
+            if (!saved) return;
+            const t = document.getElementById('smartFilterToggle'), l = document.getElementById('smartFilterLevel');
+            if (l && SMART_LEVELS[saved.level]) l.value = saved.level;
+            if (t) { t.checked = !!saved.on; const lab = document.getElementById('smartFilterToggleLabel'); if (lab) lab.textContent = saved.on ? `On - ${(SMART_LEVELS[saved.level] || SMART_LEVELS.balanced).label}` : 'Off'; }
+        } catch (e) { /* ignore */ }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+})();
 // markets (absolute keys) the Team / Opp market columns show for this row right now: selected markets inside the limits.
 // null = no market filter is set, so there is nothing to restrict to.
 function tableAllowedKeysForTeam(team) {
@@ -21011,6 +21162,11 @@ function tableAllowedKeysForTeam(team) {
 }
 // the engine's candidate picks for a row, best first. With the columns restriction: its ranked options that the columns show.
 function engineCandidatesForRow(team, onlyCols) {
+    if (smartFilterOn()) {                                                   // same evidence rules as the table filter
+        let ctx = null; try { ctx = acMakeCtx(); } catch (e) { ctx = { leaders: {}, sizes: {} }; }
+        const r = smartEvaluateRow(team, smartFilterState(), smartLearn(), ctx, onlyCols);
+        return r.ok ? r.passing.map(o => ({ key: o.key, label: o.label, odds: o.odds, p: o.p, confidence: `Rank ${o.rank || '-'} (smart)` })) : [];
+    }
     const allowed = onlyCols ? tableAllowedKeysForTeam(team) : null;
     if (!allowed) { const p = enginePickForRow(team); return p ? [p] : []; }
     let options = null;
